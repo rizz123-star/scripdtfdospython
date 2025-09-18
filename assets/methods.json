@@ -1,0 +1,18 @@
+[
+    {"name": "SUKI", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+    {"name": "H2GOD", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+    {"name": "H2PEZ", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+    {"name": "H2FLASH", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+    {"name": "GLORY", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+    {"name": "H2BYPASS", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+	{"name": "H2FLOOD", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+	{"name": "HTTPS", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+	{"name": "HTTP-X", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+	{"name": "TLS", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+	{"name": "HOLD", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+	{"name": "STORM", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+	{"name": "MIX", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+	{"name": "RAW", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+	{"name": "NINJA", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+	{"name": "REFRESH", "description": "layer 7 - Attack Url [normal]", "duration": "86000"},
+]
